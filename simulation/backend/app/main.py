@@ -16,6 +16,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app.candidate_actions import action_candidates, calibrated_probability, features_for_action
+from app.sensor_mapping import build_base_features, weighted_power
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 LHR_SRC = PROJECT_ROOT / "logit_hierarchical_regression" / "src"
@@ -29,6 +32,7 @@ DEFAULT_MERCURY_BASE_URL = "https://api.inceptionlabs.ai/v1"
 DEFAULT_MERCURY_MODEL = "mercury-2"
 DEMO_SECONDS = 5 * 60
 LOG_DIR = PROJECT_ROOT / "simulation" / "logs"
+MERCURY_SUMMARY_CACHE: dict[str, str] = {}
 
 
 class UnitState(BaseModel):
@@ -71,38 +75,12 @@ class DecisionResponse(BaseModel):
     mercury_used: bool
     raw_rows: list[list[Any]]
     features: dict[str, Any]
+    is_alternate: bool = False
+    applicability: float = 1.0
 
 
 class DecisionSetResponse(BaseModel):
     decisions: list[DecisionResponse]
-
-
-DECISION_TEMPLATES = {
-    "counter-uas": {
-        "title": "Prioritize counter-UAS intercept",
-        "summary": "Move ISR and escort fires onto the hostile drone to reduce ambush coordination.",
-        "posture": "HD|postype_0",
-        "post1": "HD",
-        "post2": None,
-        "postype": 0,
-    },
-    "break-contact": {
-        "title": "Break contact and reverse convoy",
-        "summary": "Pull the VIP vehicle back through the cleared road segment while escorts cover.",
-        "posture": "PD|postype_0",
-        "post1": "PD",
-        "post2": None,
-        "postype": 0,
-    },
-    "screen-and-push": {
-        "title": "Dismount screen and push through",
-        "summary": "Use infantry and MRAP to screen the danger area while the VIP vehicle accelerates.",
-        "posture": "HD|postype_1",
-        "post1": "HD",
-        "post2": "PD",
-        "postype": 1,
-    },
-}
 
 
 app = FastAPI(title="SCSP Fogpiercer Simulation Backend")
@@ -174,118 +152,75 @@ def battlefield_metrics(state: SimulationState) -> dict[str, float | bool]:
     )
     friendly_power = sum(unit.health for unit in friendlies)
     enemy_power = sum(unit.health for unit in enemies)
+    friendly_weighted_power = weighted_power(friendlies)
+    enemy_weighted_power = weighted_power(enemies)
     enemy_drone_alive = any(unit.type == "UAS" for unit in enemies)
+    friendly_drone_alive = any(unit.type == "UAS" for unit in friendlies)
     proximity = max(0.0, min(1.0, (260.0 - closest) / 260.0))
-    ratio = max(0.0, min(1.7, enemy_power / max(1.0, friendly_power))) / 1.7
+    ratio = max(0.0, min(1.7, enemy_weighted_power / max(1.0, friendly_weighted_power))) / 1.7
     threat = round((proximity * 0.68 + ratio * 0.32) * 100.0)
+    force_balance_index = max(-3.0, min(3.0, (friendly_weighted_power - enemy_weighted_power) / 100.0))
 
     return {
         "friendly_count": float(len(friendlies)),
         "enemy_count": float(len(enemies)),
         "friendly_power": friendly_power,
         "enemy_power": enemy_power,
+        "friendly_weighted_power": round(friendly_weighted_power, 2),
+        "enemy_weighted_power": round(enemy_weighted_power, 2),
+        "force_balance_index": round(force_balance_index, 2),
         "vip_health": vip.health if vip else 0.0,
         "closest_enemy": closest,
         "enemy_drone_alive": enemy_drone_alive,
+        "friendly_drone_alive": friendly_drone_alive,
         "threat": threat,
     }
 
 
-def base_feature_row(state: SimulationState) -> dict[str, Any]:
-    metrics = battlefield_metrics(state)
-    threat = float(metrics["threat"])
-    enemy_drone_alive = bool(metrics["enemy_drone_alive"])
+def base_feature_row(
+    state: SimulationState,
+    metrics: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, bool]]:
     elapsed_days = max(0.0, DEMO_SECONDS - state.seconds_remaining) / 86400.0
-
-    return {
-        "war4_theater": "Modern local demo",
-        "terrain_primary": "R",
-        "weather_primary": "D",
-        "primary_attacker": "Friendly convoy",
-        "primary_defender": "Hostile ambush cell",
-        "front": 1 if threat > 45 else 0,
-        "depth": 1 if threat > 65 else 0,
-        "aeroa": -1 if enemy_drone_alive else 1,
-        "surpa": -1 if threat > 55 else 0,
-        "cea": round((float(metrics["friendly_count"]) - float(metrics["enemy_count"])) * 0.5, 2),
-        "leada": 1 if state.selected_decision_id else 0,
-        "trnga": 0,
-        "morala": 1 if float(metrics["vip_health"]) > 70 else 0,
-        "logsa": 0,
-        "momnta": 1 if threat < 45 else -1,
-        "intela": 0 if enemy_drone_alive else 1,
-        "techa": 0,
-        "inita": 0,
-        "quala": round(float(metrics["vip_health"]) / 50.0, 2),
-        "resa": 0,
-        "mobila": 0,
-        "aira": -1 if enemy_drone_alive else 0,
-        "fprepa": 0,
-        "wxa": 0,
-        "terra": 1,
-        "leadaa": 1 if state.selected_decision_id else 0,
-        "plana": 0,
-        "surpaa": -1 if threat > 55 else 0,
-        "mana": 0,
-        "logsaa": 0,
-        "fortsa": 0,
-        "deepa": 1 if threat > 65 else 0,
-        "is_hero": 1,
-        "war_initiator": 1,
-        "terrano": 1,
-        "terra1": "R",
-        "terra2": "M",
-        "terra3": None,
-        "wxno": 1,
-        "wx1": "D",
-        "wx2": "S",
-        "wx3": "T",
-        "wx4": "F",
-        "wx5": "T",
-        "duration1": 1.0,
-        "duration2": round(elapsed_days, 5),
-        "dyad_weight": 1.0,
-        "direction": 1,
-    }
-
-
-def feature_row_for_decision(state: SimulationState, decision_id: str) -> dict[str, Any]:
-    template = DECISION_TEMPLATES[decision_id]
-    row = base_feature_row(state)
-    row.update(
-        {
-            "tactical_posture": template["posture"],
-            "postype": template["postype"],
-            "post1": template["post1"],
-            "post2": template["post2"],
-        }
+    return build_base_features(
+        metrics=metrics,
+        selected_decision_id=state.selected_decision_id,
+        elapsed_days=elapsed_days,
     )
-
-    if decision_id == "counter-uas":
-        row.update({"techa": 1, "intela": 1, "aeroa": 1})
-    elif decision_id == "break-contact":
-        row.update({"resa": 1, "mobila": -1, "inita": -1, "direction": -1})
-    elif decision_id == "screen-and-push":
-        row.update({"mobila": 1, "inita": 1, "plana": 1, "momnta": 1})
-
-    return row
 
 
 def raw_rows(decision: dict[str, Any], features: dict[str, Any], metrics: dict[str, Any]) -> list[list[Any]]:
     rows: list[list[Any]] = [
         ["decision_action", decision["title"]],
         ["success_probability", f"{decision['success_probability']:.3f} ({decision['score']:.0f}%)"],
+        ["raw_logit_probability", f"{decision.get('raw_logit_probability', decision['success_probability']):.6f}"],
+        ["force_balance_multiplier", decision.get("force_balance_multiplier", 1.0)],
+        ["action_fit_multiplier", decision.get("action_fit_multiplier", 1.0)],
+        ["probability_formula", "raw_logit_probability * force_balance_multiplier * action_fit_multiplier"],
         ["model_source", decision["model_source"]],
         ["mercury_used", decision["mercury_used"]],
         ["mercury_summary", decision["mercury_summary"]],
+        ["is_alternate", decision.get("is_alternate", False)],
+        ["applicability", decision.get("applicability", 1.0)],
+        ["active_sensor_conditions", ", ".join(decision.get("active_sensor_conditions", []))],
         ["target_column", "attacker_success"],
     ]
+    for mapping in decision.get("sensor_mapping_trace", []):
+        rows.append(
+            [
+                f"sensor_mapping.{mapping['condition']}",
+                f"{mapping['description']} -> {mapping['fields']}",
+            ]
+        )
+    rows.append(["action_feature_deltas", decision.get("action_deltas", {})])
     rows.extend([key, value] for key, value in features.items())
     rows.extend(
         [
             ["closest_enemy_m", round(float(metrics["closest_enemy"]) * 2.5)],
             ["friendly_combat_power", round(float(metrics["friendly_power"]))],
             ["enemy_combat_power", round(float(metrics["enemy_power"]))],
+            ["friendly_weighted_power", round(float(metrics["friendly_weighted_power"]))],
+            ["enemy_weighted_power", round(float(metrics["enemy_weighted_power"]))],
             ["threat_index", round(float(metrics["threat"]))],
         ]
     )
@@ -313,9 +248,17 @@ def log_decision_snapshot(
                 "title": decision["title"],
                 "score": decision["score"],
                 "success_probability": decision["success_probability"],
+                "raw_logit_probability": decision.get("raw_logit_probability"),
+                "force_balance_multiplier": decision.get("force_balance_multiplier"),
+                "action_fit_multiplier": decision.get("action_fit_multiplier"),
                 "model_source": decision["model_source"],
                 "mercury_used": decision.get("mercury_used", False),
                 "mercury_summary": decision.get("mercury_summary", ""),
+                "is_alternate": decision.get("is_alternate", False),
+                "applicability": decision.get("applicability", 1.0),
+                "active_sensor_conditions": decision.get("active_sensor_conditions", []),
+                "sensor_mapping_trace": decision.get("sensor_mapping_trace", []),
+                "action_deltas": decision.get("action_deltas", {}),
                 "features": decision["features"],
             }
             for decision in decisions
@@ -436,8 +379,10 @@ def mercury_payload(decisions: list[dict[str, Any]], metrics: dict[str, Any]) ->
         {
             "id": decision["id"],
             "title": decision["title"],
+            "base_summary": decision["summary"],
             "success_probability": round(float(decision["success_probability"]), 3),
             "score": decision["score"],
+            "is_alternate": decision.get("is_alternate", False),
         }
         for decision in decisions
     ]
@@ -452,6 +397,7 @@ def mercury_payload(decisions: list[dict[str, Any]], metrics: dict[str, Any]) ->
                 "content": (
                     "You are Mercury II supporting a tactical demo UI. "
                     "Write concise, non-classified, commander-facing option summaries. "
+                    "Preserve each option's distinct role and do not make all options sound alike. "
                     "Do not invent new options. Return JSON only."
                 ),
             },
@@ -461,7 +407,8 @@ def mercury_payload(decisions: list[dict[str, Any]], metrics: dict[str, Any]) ->
                     {
                         "task": (
                             "For each option, produce one clear sentence under 28 words. "
-                            "Mention the likely operational effect, not implementation details."
+                            "Mention the distinct operational effect, not implementation details. "
+                            "If an option is marked alternate, describe why it is secondary."
                         ),
                         "battlefield_metrics": metrics,
                         "ranked_logit_options": compact_decisions,
@@ -500,6 +447,20 @@ def enrich_with_mercury(decisions: list[dict[str, Any]], metrics: dict[str, Any]
             decision["mercury_used"] = False
         return decisions
 
+    missing: list[dict[str, Any]] = []
+    for decision in decisions:
+        summary_token = re.sub(r"[^A-Za-z0-9]+", "-", decision["summary"]).strip("-")[:48]
+        cache_key = f"{decision['id']}:{round(float(decision['score']))}:{summary_token}"
+        decision["mercury_cache_key"] = cache_key
+        if cache_key in MERCURY_SUMMARY_CACHE:
+            decision["mercury_summary"] = MERCURY_SUMMARY_CACHE[cache_key]
+            decision["mercury_used"] = True
+        else:
+            missing.append(decision)
+
+    if not missing:
+        return decisions
+
     try:
         response = httpx.post(
             mercury_endpoint(),
@@ -507,7 +468,7 @@ def enrich_with_mercury(decisions: list[dict[str, Any]], metrics: dict[str, Any]
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
-            json=mercury_payload(decisions, metrics),
+            json=mercury_payload(missing, metrics),
             timeout=8.0,
         )
         response.raise_for_status()
@@ -518,14 +479,15 @@ def enrich_with_mercury(decisions: list[dict[str, Any]], metrics: dict[str, Any]
             for item in parsed.get("decisions", [])
             if item.get("id") and item.get("summary")
         }
-        for decision in decisions:
+        for decision in missing:
             decision["mercury_summary"] = summaries.get(
                 decision["id"],
                 fallback_mercury_summary(decision, metrics),
             )
             decision["mercury_used"] = decision["id"] in summaries
+            MERCURY_SUMMARY_CACHE[decision["mercury_cache_key"]] = decision["mercury_summary"]
     except Exception:
-        for decision in decisions:
+        for decision in missing:
             decision["mercury_summary"] = fallback_mercury_summary(decision, metrics)
             decision["mercury_used"] = False
 
@@ -547,7 +509,10 @@ def simulation_event(event: SimulationEvent) -> dict[str, str]:
 def decisions(state: SimulationState) -> DecisionSetResponse:
     pipeline, schema = get_model()
     metrics = battlefield_metrics(state)
-    rows = [feature_row_for_decision(state, decision_id) for decision_id in DECISION_TEMPLATES]
+    base_features, mapping_trace, sensor_conditions = base_feature_row(state, metrics)
+    active_conditions = [condition for condition, active in sensor_conditions.items() if active]
+    candidates = action_candidates(metrics)
+    rows = [features_for_action(base_features, candidate) for candidate in candidates]
 
     import pandas as pd
 
@@ -555,22 +520,34 @@ def decisions(state: SimulationState) -> DecisionSetResponse:
     probabilities = pipeline.predict_proba(frame)[:, 1]
 
     ranked_decisions: list[dict[str, Any]] = []
-    for decision_id, probability, features in zip(DECISION_TEMPLATES, probabilities, rows, strict=True):
-        template = DECISION_TEMPLATES[decision_id]
+    for candidate, probability, features in zip(candidates, probabilities, rows, strict=True):
+        applicability = float(candidate["applicability"])
+        calibration = calibrated_probability(float(probability), candidate["id"], metrics)
+        adjusted_probability = calibration["adjusted_probability"]
         ranked_decisions.append(
             {
-                "id": decision_id,
-                "title": template["title"],
-                "summary": template["summary"],
+                "id": candidate["id"],
+                "title": candidate["title"],
+                "summary": candidate["summary"],
                 "features": features,
-                "success_probability": float(probability),
-                "score": round(float(probability) * 100.0, 1),
+                "success_probability": adjusted_probability,
+                "raw_logit_probability": float(probability),
+                "force_balance_multiplier": calibration["force_balance_multiplier"],
+                "action_fit_multiplier": calibration["action_fit_multiplier"],
+                "score": round(adjusted_probability * 100.0, 1),
                 "model_source": os.environ.get("FOGPIERCER_HF_MODEL_REPO", DEFAULT_MODEL_REPO),
+                "is_alternate": False,
+                "applicability": applicability,
+                "active_sensor_conditions": active_conditions,
+                "sensor_mapping_trace": mapping_trace,
+                "action_deltas": candidate["deltas"],
             }
         )
 
     ranked_decisions.sort(key=lambda item: item["success_probability"], reverse=True)
-    ranked_decisions = enrich_with_mercury(ranked_decisions[:3], metrics)
+    for index, decision in enumerate(ranked_decisions):
+        decision["is_alternate"] = index >= 3
+    ranked_decisions = enrich_with_mercury(ranked_decisions, metrics)
 
     ranked: list[DecisionResponse] = []
     for decision in ranked_decisions:
@@ -586,6 +563,8 @@ def decisions(state: SimulationState) -> DecisionSetResponse:
                 mercury_used=decision["mercury_used"],
                 raw_rows=raw_rows(decision, decision["features"], metrics),
                 features=decision["features"],
+                is_alternate=decision["is_alternate"],
+                applicability=decision["applicability"],
             )
         )
 

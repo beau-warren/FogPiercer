@@ -179,6 +179,30 @@ button.compact {
   box-shadow: 0 0 0 2px rgba(88, 214, 141, 0.18);
 }
 
+.decision-card.alternate {
+  position: relative;
+  background: rgba(38, 57, 76, 0.45);
+  border-color: rgba(82, 103, 125, 0.55);
+  box-shadow: none;
+  opacity: 0.74;
+  padding: 0.65rem;
+}
+
+.decision-card.first-alternate {
+  margin-top: 1.2rem;
+}
+
+.decision-card.first-alternate::before {
+  color: var(--muted);
+  content: "Other available options";
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: -1.6rem 0 0.65rem;
+  text-transform: uppercase;
+}
+
 .decision-card h3 {
   align-items: baseline;
   display: flex;
@@ -187,11 +211,20 @@ button.compact {
   margin: 0 0 0.4rem;
 }
 
+.decision-card.alternate h3 {
+  font-size: 0.92rem;
+}
+
 .decision-card p {
   color: var(--muted);
   font-size: 0.92rem;
   line-height: 1.35;
   margin: 0 0 0.75rem;
+}
+
+.decision-card.alternate p {
+  font-size: 0.8rem;
+  margin-bottom: 0.55rem;
 }
 
 .decision-card.selected p {
@@ -202,6 +235,15 @@ button.compact {
   display: grid;
   gap: 0.55rem;
   grid-template-columns: 0.8fr 1fr;
+}
+
+.decision-card.alternate .decision-actions {
+  grid-template-columns: 1fr 1fr;
+}
+
+.decision-card.alternate button {
+  font-size: 0.82rem;
+  padding: 0.55rem 0.65rem;
 }
 
 .decision-card.selected .select-decision {

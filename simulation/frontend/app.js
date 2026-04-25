@@ -343,6 +343,34 @@ function applySelectedDecision() {
       unit.targetY = clamp(unit.y + offset * 0.35, 50, HEIGHT - 50);
     }
   }
+
+  if (state.selectedDecision.id === "shift-vip-to-cover") {
+    const coverX = WIDTH * 0.42;
+    const coverY = HEIGHT * 0.72;
+    for (const unit of friendly) {
+      if (unit.id === "vip") {
+        unit.targetX = clamp(coverX, 50, WIDTH - 50);
+        unit.targetY = clamp(coverY, 50, HEIGHT - 50);
+      } else {
+        unit.targetX = clamp(coverX + randomBetween(-90, 90), 50, WIDTH - 50);
+        unit.targetY = clamp(coverY + randomBetween(-70, 70), 50, HEIGHT - 50);
+      }
+    }
+  }
+
+  if (state.selectedDecision.id === "hold-defensive-perimeter") {
+    for (const unit of friendly) {
+      unit.targetX = clamp(vip.x + randomBetween(-95, 95), 50, WIDTH - 50);
+      unit.targetY = clamp(vip.y + randomBetween(-75, 75), 50, HEIGHT - 50);
+    }
+  }
+
+  if (state.selectedDecision.id === "call-for-reinforcement") {
+    for (const unit of friendly) {
+      unit.targetX = clamp(unit.x + randomBetween(-35, 35), 50, WIDTH - 50);
+      unit.targetY = clamp(unit.y + randomBetween(-35, 35), 50, HEIGHT - 50);
+    }
+  }
 }
 
 function moveUnitTowardTarget(unit) {
@@ -601,6 +629,8 @@ async function refreshModelDecisions(force = false) {
       mercurySummary: decision.mercury_summary,
       rawRows: decision.raw_rows,
       features: decision.features,
+      isAlternate: decision.is_alternate,
+      applicability: decision.applicability,
     }));
     state.modelOnline = true;
     state.lastDecisionRenderAt = 0;
@@ -828,11 +858,12 @@ function renderDecisionList() {
   const decisions = computeDecisions();
   state.renderedDecisions = decisions;
   const signature = decisions
-    .map((decision) => `${decision.id}:${Math.round(decision.score)}`)
+    .map((decision) => `${decision.id}:${Math.round(decision.score)}:${decision.isAlternate ? "alt" : "primary"}`)
     .join("|");
   const now = Date.now();
   if (
     decisionList.childElementCount > 0
+    && decisionList.childElementCount === decisions.length
     && signature === state.decisionSignature
     && now - state.lastDecisionRenderAt < 1500
   ) {
@@ -842,8 +873,9 @@ function renderDecisionList() {
   state.decisionSignature = signature;
   state.lastDecisionRenderAt = now;
 
-  if (decisionList.childElementCount === 0) {
-    for (let index = 0; index < 3; index += 1) {
+  if (decisionList.childElementCount !== decisions.length) {
+    decisionList.replaceChildren();
+    for (let index = 0; index < decisions.length; index += 1) {
       const card = document.createElement("article");
       card.className = "decision-card";
 
@@ -876,7 +908,7 @@ function renderDecisionList() {
       selectButton.textContent = "Select option";
       selectButton.addEventListener("click", () => {
         const decision = state.renderedDecisions[index];
-        if (!decision) return;
+        if (!decision || decision.isAlternate) return;
         state.selectedDecision = decision;
         state.lastDecisionRenderAt = 0;
         currentDecision.textContent = `${decision.title} (${Math.round(decision.score)}% estimated success)`;
@@ -896,10 +928,16 @@ function renderDecisionList() {
     if (!card) continue;
     const isSelected = state.selectedDecision?.id === decision.id;
     card.classList.toggle("selected", isSelected);
+    card.classList.toggle("alternate", Boolean(decision.isAlternate));
+    card.classList.toggle("first-alternate", Boolean(decision.isAlternate) && !decisions[index - 1]?.isAlternate);
     card.querySelector(".decision-title").textContent = decision.title;
     card.querySelector(".score").textContent = `${Math.round(decision.score)}%`;
     card.querySelector(".decision-summary").textContent = decision.summary;
-    card.querySelector(".select-decision").textContent = isSelected ? "Selected" : "Select option";
+    const selectButton = card.querySelector(".select-decision");
+    selectButton.disabled = Boolean(decision.isAlternate);
+    selectButton.textContent = decision.isAlternate
+      ? "Lower rank"
+      : (isSelected ? "Selected" : "Select option");
   }
 }
 
