@@ -21,6 +21,7 @@ logit_hierarchical_regression/models/*
 # Frontend/backend local artifacts.
 simulation/backend/.venv/
 logit_hierarchical_regression/.venv/
+simulation/logs/
 simulation/frontend/node_modules/
 simulation/frontend/dist/
 

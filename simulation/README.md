@@ -41,6 +41,14 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
+For Mercury II summaries, set these in the root `.env`:
+
+```bash
+MERCURY_II_API_KEY=...
+MERCURY_II_BASE_URL=https://api.inceptionlabs.ai/v1
+MERCURY_II_MODEL=mercury-2
+```
+
 Implemented in this pass:
 
 - Randomized 2D battlefield with road, cover, danger zone, and sensor rings.
@@ -59,5 +67,24 @@ Implemented in this pass:
 The browser falls back to local heuristics if the backend is offline. When the
 backend is running, decision scores and raw-data rows come from CDB90-shaped
 synthetic sensor features passed into the trained Logit Hierarchical Regression
-model downloaded from Hugging Face.
+model downloaded from Hugging Face. If Mercury II credentials are present, the
+backend also rewrites each option into concise commander-facing language.
+
+## Telemetry Logs
+
+Each simulation run writes local telemetry under `simulation/logs/<run-id>/`.
+This folder is ignored by git.
+
+Generated files:
+
+- `events.jsonl`: start, selected decision, reset/reiterate, and end-state
+  events.
+- `decision_snapshots.jsonl`: live simulation state, sensor metrics, ranked
+  model decisions, Mercury summaries, and feature rows for each model request.
+- `cdb90_training_rows.csv`: CDB90-shaped candidate-action rows that could be
+  reviewed later for retraining experiments.
+- `final_summary.json`: final run status when a scenario ends or is reset.
+
+No retraining runs automatically. These files are demo evidence that the system
+can collect after-action data for a later human-reviewed model update.
 

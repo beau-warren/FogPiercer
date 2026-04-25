@@ -56,6 +56,8 @@ const terrainTemplates = [
 ];
 
 const state = {
+  runId: createRunId(),
+  tick: 0,
   units: [],
   terrain: terrainTemplates[0],
   selectedDecision: null,
@@ -72,10 +74,17 @@ const state = {
   modelOnline: false,
   modelFetchInFlight: false,
   lastModelFetchAt: 0,
+  endLogged: false,
 };
 
 function randomBetween(min, max) {
   return min + Math.random() * (max - min);
+}
+
+function createRunId() {
+  return `run-${new Date().toISOString().replace(/[:.]/g, "-")}-${Math.random()
+    .toString(16)
+    .slice(2, 8)}`;
 }
 
 function clamp(value, min, max) {
@@ -121,7 +130,48 @@ function createUnit({ id, side, type, label, x, y, speed, range, health = 100 })
   };
 }
 
+function missionStatus() {
+  const friendlyAlive = getFriendlyUnits().length;
+  const enemyAlive = getEnemyUnits().length;
+  if (friendlyAlive === 0) return "enemy_victory";
+  if (enemyAlive === 0) return "friendly_victory";
+  if (state.secondsRemaining <= 0) return "clock_expired";
+  return "running";
+}
+
+function logSimulationEvent(eventType, status = missionStatus()) {
+  fetch(`${API_BASE_URL}/api/events`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      runId: state.runId,
+      eventType,
+      tick: state.tick,
+      secondsRemaining: state.secondsRemaining,
+      selectedDecisionId: state.selectedDecision?.id ?? null,
+      missionStatus: status,
+      units: state.units.map((unit) => ({
+        id: unit.id,
+        side: unit.side,
+        type: unit.type,
+        label: unit.label,
+        x: unit.x,
+        y: unit.y,
+        health: unit.health,
+        range: unit.range,
+      })),
+    }),
+  }).catch(() => {
+    // Telemetry should never interrupt the live demo.
+  });
+}
+
 function resetScenario() {
+  if (state.units.length > 0 && !state.endLogged) {
+    logSimulationEvent("reset", "reset_before_completion");
+  }
+  state.runId = createRunId();
+  state.tick = 0;
   const terrain = terrainTemplates[Math.floor(Math.random() * terrainTemplates.length)];
   state.terrain = terrain;
   state.secondsRemaining = DEMO_SECONDS;
@@ -137,6 +187,7 @@ function resetScenario() {
   state.modelOnline = false;
   state.modelFetchInFlight = false;
   state.lastModelFetchAt = 0;
+  state.endLogged = false;
   hideRawDataPopover();
   reiterateButton.disabled = true;
   currentDecision.textContent = "Awaiting commander decision";
@@ -222,6 +273,7 @@ function resetScenario() {
   ];
 
   render();
+  logSimulationEvent("started");
 }
 
 function getFriendlyUnits() {
@@ -495,6 +547,8 @@ function updateSituationText() {
 
 function serializeSimulationState() {
   return {
+    runId: state.runId,
+    tick: state.tick,
     secondsRemaining: state.secondsRemaining,
     selectedDecisionId: state.selectedDecision?.id ?? null,
     units: state.units.map((unit) => ({
@@ -533,6 +587,8 @@ async function refreshModelDecisions(force = false) {
       score: decision.score,
       successProbability: decision.success_probability,
       modelSource: decision.model_source,
+      mercuryUsed: decision.mercury_used,
+      mercurySummary: decision.mercury_summary,
       rawRows: decision.raw_rows,
       features: decision.features,
     }));
@@ -550,6 +606,7 @@ async function refreshModelDecisions(force = false) {
 function tick() {
   if (state.ended) return;
 
+  state.tick += 1;
   refreshModelDecisions();
   state.secondsRemaining -= TICK_MS / 1000;
   chooseEnemyTargets();
@@ -564,6 +621,10 @@ function tick() {
   if (getFriendlyUnits().length === 0 || getEnemyUnits().length === 0 || state.secondsRemaining <= 0) {
     state.ended = true;
     reiterateButton.disabled = false;
+    if (!state.endLogged) {
+      state.endLogged = true;
+      logSimulationEvent("ended", missionStatus());
+    }
   }
 
   render();
@@ -809,6 +870,7 @@ function renderDecisionList() {
         state.selectedDecision = decision;
         state.lastDecisionRenderAt = 0;
         currentDecision.textContent = `${decision.title} (${Math.round(decision.score)}% estimated success)`;
+        logSimulationEvent("selected_decision");
         applySelectedDecision();
         render();
       });
@@ -840,7 +902,12 @@ function renderSensorSummary() {
   sensorSummary.replaceChildren();
   const rows = [
     ["Threat index", `${threat}/100`],
-    ["Decision source", state.modelOnline ? "HF Logit model" : "Heuristic fallback"],
+    [
+      "Decision source",
+      state.modelOnline
+        ? `HF Logit model${state.modelDecisions.some((decision) => decision.mercuryUsed) ? " + Mercury II" : ""}`
+        : "Heuristic fallback",
+    ],
     ["Friendly combat power", Math.round(friendlyHealth).toString()],
     ["Enemy combat power", Math.round(enemyHealth).toString()],
     ["Hostile drone", enemyDrone],
@@ -921,8 +988,16 @@ window.addEventListener("pointerup", () => {
   state.popoverDrag = null;
 });
 
-resetButton.addEventListener("click", resetScenario);
-reiterateButton.addEventListener("click", resetScenario);
+resetButton.addEventListener("click", () => {
+  logSimulationEvent("reset", missionStatus());
+  state.endLogged = true;
+  resetScenario();
+});
+reiterateButton.addEventListener("click", () => {
+  logSimulationEvent("reiterate", missionStatus());
+  state.endLogged = true;
+  resetScenario();
+});
 
 resetScenario();
 refreshModelDecisions(true);

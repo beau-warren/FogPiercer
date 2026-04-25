@@ -1,5 +1,6 @@
 fastapi
 huggingface_hub
+httpx
 joblib
 pandas
 python-dotenv
