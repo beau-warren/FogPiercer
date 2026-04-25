@@ -31,6 +31,16 @@ Then open:
 http://localhost:5173
 ```
 
+Run the local model backend in a second terminal:
+
+```bash
+cd /home/fermsi/github_repos/SCSP_fogpiercer/simulation/backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
 Implemented in this pass:
 
 - Randomized 2D battlefield with road, cover, danger zone, and sensor rings.
@@ -46,7 +56,8 @@ Implemented in this pass:
 - End state when one side is neutralized or the 5-minute demo clock expires.
 - Reset/reiterate controls.
 
-The current decision scores are local heuristics. Step 3 will replace those
-scores with CDB90-shaped synthetic sensor features passed into the trained Logit
-Hierarchical Regression model.
+The browser falls back to local heuristics if the backend is offline. When the
+backend is running, decision scores and raw-data rows come from CDB90-shaped
+synthetic sensor features passed into the trained Logit Hierarchical Regression
+model downloaded from Hugging Face.
 

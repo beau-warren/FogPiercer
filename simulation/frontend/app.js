@@ -2,6 +2,7 @@ const WIDTH = 1000;
 const HEIGHT = 620;
 const TICK_MS = 240;
 const DEMO_SECONDS = 5 * 60;
+const API_BASE_URL = "http://127.0.0.1:8000";
 
 const svg = document.querySelector("#battlefield");
 const terrainLayer = document.querySelector("#terrain-layer");
@@ -67,6 +68,10 @@ const state = {
   renderedDecisions: [],
   fireTracers: [],
   popoverDrag: null,
+  modelDecisions: [],
+  modelOnline: false,
+  modelFetchInFlight: false,
+  lastModelFetchAt: 0,
 };
 
 function randomBetween(min, max) {
@@ -128,6 +133,10 @@ function resetScenario() {
   state.renderedDecisions = [];
   state.fireTracers = [];
   state.popoverDrag = null;
+  state.modelDecisions = [];
+  state.modelOnline = false;
+  state.modelFetchInFlight = false;
+  state.lastModelFetchAt = 0;
   hideRawDataPopover();
   reiterateButton.disabled = true;
   currentDecision.textContent = "Awaiting commander decision";
@@ -335,7 +344,7 @@ function computeThreat() {
   return Math.round((proximity * 0.68 + ratio * 0.32) * 100);
 }
 
-function computeDecisions() {
+function computeHeuristicDecisions() {
   const threat = computeThreat();
   const enemies = getEnemyUnits();
   const enemyDroneAlive = enemies.some((unit) => unit.type === "UAS");
@@ -348,25 +357,34 @@ function computeDecisions() {
       title: "Prioritize counter-UAS intercept",
       score: clamp(76 + (enemyDroneAlive ? 12 : -18) + threat * 0.08, 1, 99),
       summary: "Move ISR and escort fires onto the hostile drone to reduce ambush coordination.",
+      modelSource: "local heuristic fallback",
     },
     {
       id: "break-contact",
       title: "Break contact and reverse convoy",
       score: clamp(68 + threat * 0.2 + (vipHealth < 55 ? 14 : 0), 1, 99),
       summary: "Pull the VIP vehicle back through the cleared road segment while escorts cover.",
+      modelSource: "local heuristic fallback",
     },
     {
       id: "screen-and-push",
       title: "Dismount screen and push through",
       score: clamp(72 - threat * 0.12 + (vipHealth > 70 ? 8 : -8), 1, 99),
       summary: "Use infantry and MRAP to screen the danger area while the VIP vehicle accelerates.",
+      modelSource: "local heuristic fallback",
     },
   ];
 
   return decisions.sort((a, b) => b.score - a.score).slice(0, 3);
 }
 
+function computeDecisions() {
+  return state.modelDecisions.length > 0 ? state.modelDecisions : computeHeuristicDecisions();
+}
+
 function buildModelRows(decision) {
+  if (decision.rawRows) return decision.rawRows;
+
   const threat = computeThreat();
   const friendlies = getFriendlyUnits();
   const enemies = getEnemyUnits();
@@ -379,7 +397,7 @@ function buildModelRows(decision) {
   return [
     ["decision_action", decision.title],
     ["success_probability", `${(decision.score / 100).toFixed(3)} (${Math.round(decision.score)}%)`],
-    ["model_source", "local heuristic placeholder; Step 3 will call HF Logit model"],
+    ["model_source", decision.modelSource ?? "local heuristic fallback"],
     ["target_column", "attacker_success"],
     ["tactical_posture", decision.id],
     ["war4_theater", "Modern local demo"],
@@ -413,8 +431,9 @@ function showRawDataPopover(decision) {
 
   const intro = document.createElement("p");
   intro.className = "popover-note";
-  intro.textContent =
-    "Raw scoring view for this option. These rows mimic the CDB90 feature surface until Step 3 wires in the Hugging Face Logit model output.";
+  intro.textContent = decision.rawRows
+    ? "Raw Logit Hierarchical Regression output for this option, generated from live simulation sensor features."
+    : "Backend is offline, so this is the local heuristic fallback view.";
 
   const table = document.createElement("table");
   table.className = "raw-data-table";
@@ -474,9 +493,64 @@ function updateSituationText() {
     "Friendly convoy is moving through restricted terrain while hostile drone and infantry cells coordinate an ambush.";
 }
 
+function serializeSimulationState() {
+  return {
+    secondsRemaining: state.secondsRemaining,
+    selectedDecisionId: state.selectedDecision?.id ?? null,
+    units: state.units.map((unit) => ({
+      id: unit.id,
+      side: unit.side,
+      type: unit.type,
+      label: unit.label,
+      x: unit.x,
+      y: unit.y,
+      health: unit.health,
+      range: unit.range,
+    })),
+  };
+}
+
+async function refreshModelDecisions(force = false) {
+  const now = Date.now();
+  if (state.modelFetchInFlight || (!force && now - state.lastModelFetchAt < 1100)) {
+    return;
+  }
+
+  state.modelFetchInFlight = true;
+  state.lastModelFetchAt = now;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/decisions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(serializeSimulationState()),
+    });
+    if (!response.ok) throw new Error(`Model backend returned ${response.status}`);
+    const payload = await response.json();
+    state.modelDecisions = payload.decisions.map((decision) => ({
+      id: decision.id,
+      title: decision.title,
+      summary: decision.summary,
+      score: decision.score,
+      successProbability: decision.success_probability,
+      modelSource: decision.model_source,
+      rawRows: decision.raw_rows,
+      features: decision.features,
+    }));
+    state.modelOnline = true;
+    state.lastDecisionRenderAt = 0;
+    render();
+  } catch {
+    state.modelOnline = false;
+    state.modelDecisions = [];
+  } finally {
+    state.modelFetchInFlight = false;
+  }
+}
+
 function tick() {
   if (state.ended) return;
 
+  refreshModelDecisions();
   state.secondsRemaining -= TICK_MS / 1000;
   chooseEnemyTargets();
   applySelectedDecision();
@@ -766,6 +840,7 @@ function renderSensorSummary() {
   sensorSummary.replaceChildren();
   const rows = [
     ["Threat index", `${threat}/100`],
+    ["Decision source", state.modelOnline ? "HF Logit model" : "Heuristic fallback"],
     ["Friendly combat power", Math.round(friendlyHealth).toString()],
     ["Enemy combat power", Math.round(enemyHealth).toString()],
     ["Hostile drone", enemyDrone],
@@ -850,5 +925,6 @@ resetButton.addEventListener("click", resetScenario);
 reiterateButton.addEventListener("click", resetScenario);
 
 resetScenario();
+refreshModelDecisions(true);
 state.tickHandle = window.setInterval(tick, TICK_MS);
 
