@@ -1,0 +1,26 @@
+.env
+.env.*
+!.env.example
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+.hf_cache/
+
+# Local datasets and trained artifacts should not be committed.
+logit_hierarchical_regression/data/raw/*
+logit_hierarchical_regression/data/processed/*
+logit_hierarchical_regression/models/*
+!logit_hierarchical_regression/data/raw/.gitkeep
+!logit_hierarchical_regression/data/processed/.gitkeep
+!logit_hierarchical_regression/models/.gitkeep
+
+# Frontend/backend local artifacts.
+simulation/backend/.venv/
+logit_hierarchical_regression/.venv/
+simulation/frontend/node_modules/
+simulation/frontend/dist/
+

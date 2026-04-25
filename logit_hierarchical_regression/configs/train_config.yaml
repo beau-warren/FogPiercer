@@ -1,0 +1,25 @@
+data:
+  csv_path_env: CDB90_DATA_PATH
+  target_column: attacker_success
+  action_column: tactical_posture
+  group_columns:
+    - war4_theater
+    - terrain_primary
+
+model:
+  max_iter: 2000
+  class_weight: balanced
+  test_size: 0.2
+  random_state: 42
+
+artifacts:
+  output_dir: models/latest
+  metadata_file: metadata.json
+  pipeline_file: model.joblib
+  feature_schema_file: feature_schema.json
+  inference_sample_file: data/processed/inference_sample.json
+
+huggingface:
+  repo_id_env: FOGPIERCER_HF_MODEL_REPO
+  token_env: HF_TOKEN
+

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fogpiercer-lhr"
+version = "0.1.0"
+description = "Local CDB90 logit hierarchical regression training for SCSP Fogpiercer."
+requires-python = ">=3.11"
+dependencies = [
+  "datasets",
+  "huggingface_hub",
+  "joblib",
+  "numpy",
+  "pandas",
+  "python-dotenv",
+  "pyyaml",
+  "scikit-learn",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

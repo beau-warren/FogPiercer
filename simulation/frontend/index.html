@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>SCSP Fogpiercer Simulation</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="command-bar" aria-label="Situation summary">
+        <div>
+          <p class="eyebrow">SCSP Fogpiercer // Local Demo</p>
+          <h1 id="situation-title">VIP convoy entering hostile road segment</h1>
+          <p id="situation-copy">
+            Friendly convoy is moving through restricted terrain while hostile
+            drone and infantry cells coordinate an ambush.
+          </p>
+        </div>
+        <div class="timer-card">
+          <span>Demo Clock</span>
+          <strong id="demo-clock">05:00</strong>
+        </div>
+      </section>
+
+      <section class="active-decision" role="status" aria-live="polite">
+        <span>Current selected option</span>
+        <strong id="current-decision">Awaiting commander decision</strong>
+      </section>
+
+      <section class="workspace">
+        <aside class="decision-panel" aria-label="Recommended decisions">
+          <div class="panel-header">
+            <p class="eyebrow">Mercury II Preview</p>
+            <h2>Top 3 Options</h2>
+          </div>
+          <div id="decision-list" class="decision-list"></div>
+          <div class="sensor-card">
+            <div class="panel-header">
+              <p class="eyebrow">Live Sensor Summary</p>
+              <h2>Field State</h2>
+            </div>
+            <dl id="sensor-summary"></dl>
+          </div>
+          <div class="control-row">
+            <button id="reset-button" type="button">Reset random scenario</button>
+            <button id="reiterate-button" type="button" class="secondary" disabled>
+              Reiterate
+            </button>
+          </div>
+        </aside>
+
+        <section class="map-panel" aria-label="2D battlefield visualization">
+          <div class="map-header">
+            <div>
+              <p class="eyebrow">2D Tactical View</p>
+              <h2 id="battlefield-status">Ambush developing</h2>
+            </div>
+            <div class="legend" aria-label="Map legend">
+              <span><i class="legend-box friendly"></i>Friendly</span>
+              <span><i class="legend-box enemy"></i>Enemy</span>
+              <span><i class="legend-box sensor"></i>Sensor</span>
+            </div>
+          </div>
+          <svg id="battlefield" viewBox="0 0 1000 620" role="img" aria-label="Battlefield map">
+            <defs>
+              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#213042" stroke-width="1" />
+              </pattern>
+              <marker id="arrow-friendly" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#64b5f6" />
+              </marker>
+              <marker id="arrow-enemy" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                <path d="M 0 0 L 10 5 L 0 10 z" fill="#ff867c" />
+              </marker>
+            </defs>
+            <rect width="1000" height="620" fill="#101923" />
+            <rect width="1000" height="620" fill="url(#grid)" opacity="0.7" />
+            <g id="terrain-layer"></g>
+            <g id="sensor-layer"></g>
+            <g id="movement-layer"></g>
+            <g id="fire-layer"></g>
+            <g id="unit-layer"></g>
+          </svg>
+        </section>
+      </section>
+    </main>
+
+    <section id="raw-data-popover" class="raw-data-popover" hidden aria-label="Raw model output">
+      <header id="raw-data-drag-handle" class="popover-header">
+        <div>
+          <p class="eyebrow">Logit Hierarchical Regression</p>
+          <h2 id="raw-data-title">Decision Raw Data</h2>
+        </div>
+        <button id="raw-data-close" type="button" class="icon-button" aria-label="Close raw data popup">x</button>
+      </header>
+      <div id="raw-data-body" class="raw-data-body"></div>
+    </section>
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>
+
