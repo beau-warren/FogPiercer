@@ -24,6 +24,20 @@ const rawDataBody = document.querySelector("#raw-data-body");
 const rawDataTitle = document.querySelector("#raw-data-title");
 const rawDataClose = document.querySelector("#raw-data-close");
 const rawDataDragHandle = document.querySelector("#raw-data-drag-handle");
+const friendlyCountInput = document.querySelector("#friendly-count");
+const enemyCountInput = document.querySelector("#enemy-count");
+
+const UNIT_STATS = {
+  VIP: { health: 100, speed: 0.75, range: 70, damage: 0.18 },
+  MRAP: { health: 100, speed: 0.95, range: 105, damage: 0.35 },
+  INF: { health: 90, speed: 0.82, range: 95, damage: 0.32 },
+  UAS: { health: 70, speed: 1.2, range: 145, damage: 0.24 },
+};
+
+const UNIT_COUNT_DEFAULTS = {
+  friendly: 4,
+  enemy: 3,
+};
 
 const terrainTemplates = [
   {
@@ -112,7 +126,19 @@ function emitFireTracer(source, target) {
   });
 }
 
-function createUnit({ id, side, type, label, x, y, speed, range, health = 100 }) {
+function unitHealthPercent(unit) {
+  return Math.round((unit.health / unit.maxHealth) * 100);
+}
+
+function configuredUnitCount(side) {
+  const input = side === "friendly" ? friendlyCountInput : enemyCountInput;
+  const fallback = UNIT_COUNT_DEFAULTS[side];
+  return clamp(Number.parseInt(input?.value ?? fallback, 10) || fallback, 1, 8);
+}
+
+function createUnit({ id, side, type, label, x, y, speed, range, health }) {
+  const stats = UNIT_STATS[type] ?? UNIT_STATS.INF;
+  const maxHealth = health ?? stats.health;
   return {
     id,
     side,
@@ -120,9 +146,11 @@ function createUnit({ id, side, type, label, x, y, speed, range, health = 100 })
     label,
     x,
     y,
-    speed,
-    range,
-    health,
+    speed: speed ?? stats.speed,
+    range: range ?? stats.range,
+    health: maxHealth,
+    maxHealth,
+    damage: stats.damage,
     targetX: x,
     targetY: y,
     lastX: x,
@@ -166,6 +194,63 @@ function logSimulationEvent(eventType, status = missionStatus()) {
   });
 }
 
+function unitTypeForSideIndex(side, index) {
+  if (side === "friendly") {
+    if (index === 0) return "VIP";
+    if (index === 1) return "MRAP";
+    if (index === 2) return "INF";
+    if (index === 3) return "UAS";
+    return index % 3 === 1 ? "MRAP" : "INF";
+  }
+
+  if (index === 0) return "UAS";
+  if (index % 3 === 0) return "MRAP";
+  return "INF";
+}
+
+function labelForUnit(side, type, index) {
+  if (side === "friendly" && type === "VIP") return "VIP";
+  if (side === "friendly" && type === "UAS") return "ISR";
+  if (side === "friendly" && type === "MRAP") return `SEC-${index}`;
+  if (side === "friendly") return `INF-${index}`;
+  if (type === "UAS") return `E-UAS-${index + 1}`;
+  if (type === "MRAP") return `E-VEH-${index + 1}`;
+  return `CELL-${String.fromCharCode(65 + (index % 26))}`;
+}
+
+function spawnFriendlyUnits(count) {
+  const units = [];
+  for (let index = 0; index < count; index += 1) {
+    const type = unitTypeForSideIndex("friendly", index);
+    units.push(createUnit({
+      id: index === 0 ? "vip" : `friendly-${type.toLowerCase()}-${index}`,
+      side: "friendly",
+      type,
+      label: labelForUnit("friendly", type, index),
+      x: clamp(145 + index * 48 + randomBetween(-14, 14), 55, 410),
+      y: clamp(randomBetween(430, 520) + (index % 2) * 16, 60, HEIGHT - 60),
+    }));
+  }
+  return units;
+}
+
+function spawnEnemyUnits(count) {
+  const units = [];
+  for (let index = 0; index < count; index += 1) {
+    const type = unitTypeForSideIndex("enemy", index);
+    const upperLane = index % 2 === 0;
+    units.push(createUnit({
+      id: `enemy-${type.toLowerCase()}-${index + 1}`,
+      side: "enemy",
+      type,
+      label: labelForUnit("enemy", type, index),
+      x: clamp(randomBetween(610, 875) - index * 18, 470, WIDTH - 60),
+      y: upperLane ? randomBetween(110, 230) : randomBetween(275, 390),
+    }));
+  }
+  return units;
+}
+
 function resetScenario() {
   if (state.units.length > 0 && !state.endLogged) {
     logSimulationEvent("reset", "reset_before_completion");
@@ -193,83 +278,8 @@ function resetScenario() {
   currentDecision.textContent = "Awaiting commander decision";
 
   state.units = [
-    createUnit({
-      id: "vip",
-      side: "friendly",
-      type: "VIP",
-      label: "VIP",
-      x: 145,
-      y: randomBetween(450, 500),
-      speed: 0.75,
-      range: 70,
-      health: 100,
-    }),
-    createUnit({
-      id: "escort-1",
-      side: "friendly",
-      type: "MRAP",
-      label: "SEC-1",
-      x: 215,
-      y: randomBetween(415, 475),
-      speed: 0.95,
-      range: 105,
-      health: 100,
-    }),
-    createUnit({
-      id: "escort-2",
-      side: "friendly",
-      type: "INF",
-      label: "INF",
-      x: 260,
-      y: randomBetween(465, 520),
-      speed: 0.82,
-      range: 90,
-      health: 100,
-    }),
-    createUnit({
-      id: "scout-uas",
-      side: "friendly",
-      type: "UAS",
-      label: "ISR",
-      x: 340,
-      y: randomBetween(330, 390),
-      speed: 1.25,
-      range: 160,
-      health: 80,
-    }),
-    createUnit({
-      id: "enemy-uas-1",
-      side: "enemy",
-      type: "UAS",
-      label: "E-UAS",
-      x: randomBetween(760, 880),
-      y: randomBetween(100, 185),
-      speed: 1.15,
-      range: 125,
-      health: 70,
-    }),
-    createUnit({
-      id: "enemy-inf-1",
-      side: "enemy",
-      type: "INF",
-      label: "CELL-A",
-      x: randomBetween(715, 850),
-      y: randomBetween(275, 370),
-      speed: 0.7,
-      range: 95,
-      health: 90,
-    }),
-    createUnit({
-      id: "enemy-inf-2",
-      side: "enemy",
-      type: "INF",
-      label: "CELL-B",
-      x: randomBetween(610, 750),
-      y: randomBetween(150, 240),
-      speed: 0.72,
-      range: 95,
-      health: 90,
-    }),
+    ...spawnFriendlyUnits(configuredUnitCount("friendly")),
+    ...spawnEnemyUnits(configuredUnitCount("enemy")),
   ];
 
   render();
@@ -309,14 +319,14 @@ function applySelectedDecision() {
   if (state.selectedDecision.id === "break-contact") {
     for (const unit of friendly) {
       unit.targetX = clamp(unit.x - 170, 50, WIDTH - 50);
-      unit.targetY = clamp(unit.y + (unit.id === "scout-uas" ? -70 : 20), 50, HEIGHT - 50);
+      unit.targetY = clamp(unit.y + (unit.type === "UAS" ? -70 : 20), 50, HEIGHT - 50);
     }
   }
 
   if (state.selectedDecision.id === "counter-uas") {
     const drone = enemies.find((unit) => unit.type === "UAS") || enemies[0];
     for (const unit of friendly) {
-      if (unit.id === "scout-uas" && drone) {
+      if (unit.type === "UAS" && drone) {
         unit.targetX = clamp(drone.x - 55, 50, WIDTH - 50);
         unit.targetY = clamp(drone.y + 45, 50, HEIGHT - 50);
       } else {
@@ -343,7 +353,7 @@ function moveUnitTowardTarget(unit) {
   const length = Math.hypot(dx, dy);
   if (length < 1) return;
 
-  const step = unit.speed * (unit.side === "enemy" ? 1.2 : 1);
+  const step = unit.speed;
   unit.x += (dx / length) * step;
   unit.y += (dy / length) * step;
   unit.x = clamp(unit.x, 30, WIDTH - 30);
@@ -357,7 +367,7 @@ function resolveCombat() {
   for (const enemy of enemies) {
     const target = nearestUnit(enemy, friendlies);
     if (target && distance(enemy, target) < enemy.range) {
-      target.health -= enemy.type === "UAS" ? 0.42 : 0.32;
+      target.health -= enemy.damage;
       emitFireTracer(enemy, target);
     }
   }
@@ -365,7 +375,7 @@ function resolveCombat() {
   for (const friendly of friendlies) {
     const target = nearestUnit(friendly, enemies);
     if (target && distance(friendly, target) < friendly.range) {
-      let effect = friendly.type === "UAS" ? 0.2 : 0.35;
+      let effect = friendly.damage;
       if (state.selectedDecision?.id === "counter-uas" && target.type === "UAS") {
         effect *= 2.8;
       }
@@ -378,7 +388,7 @@ function resolveCombat() {
   }
 
   for (const unit of state.units) {
-    unit.health = clamp(unit.health, 0, 100);
+    unit.health = clamp(unit.health, 0, unit.maxHealth);
   }
 }
 
@@ -679,11 +689,11 @@ function renderTerrain() {
 function renderSensors() {
   sensorLayer.replaceChildren();
   for (const unit of state.units.filter((item) => item.health > 0 && item.side === "friendly")) {
-    if (unit.type === "UAS" || unit.id === "escort-1") {
+    if (unit.type === "UAS" || unit.type === "MRAP") {
       sensorLayer.appendChild(el("circle", {
         cx: unit.x,
         cy: unit.y,
-        r: unit.type === "UAS" ? 155 : 105,
+        r: unit.type === "UAS" ? UNIT_STATS.UAS.range : UNIT_STATS.MRAP.range,
         class: "sensor-ring",
       }));
     }
@@ -760,7 +770,7 @@ function renderUnits() {
       "data-id": unit.id,
       tabindex: "0",
       role: "button",
-      "aria-label": `${unit.side} ${unit.label} ${Math.round(unit.health)} percent health`,
+      "aria-label": `${unit.side} ${unit.label} ${unitHealthPercent(unit)} percent health`,
     });
 
     group.appendChild(unitFrame(unit));
@@ -792,10 +802,10 @@ function renderUnits() {
     group.appendChild(el("rect", {
       x: -29,
       y: 27,
-      width: 58 * (unit.health / 100),
+      width: 58 * (unit.health / unit.maxHealth),
       height: 6,
       rx: 3,
-      class: `health-bar ${unit.health < 40 ? "low" : ""}`,
+      class: `health-bar ${unitHealthPercent(unit) < 40 ? "low" : ""}`,
     }));
 
     group.addEventListener("pointerdown", (event) => {
@@ -908,6 +918,8 @@ function renderSensorSummary() {
         ? `HF Logit model${state.modelDecisions.some((decision) => decision.mercuryUsed) ? " + Mercury II" : ""}`
         : "Heuristic fallback",
     ],
+    ["Friendly units", `${getFriendlyUnits().length}/${state.units.filter((unit) => unit.side === "friendly").length}`],
+    ["Enemy units", `${getEnemyUnits().length}/${state.units.filter((unit) => unit.side === "enemy").length}`],
     ["Friendly combat power", Math.round(friendlyHealth).toString()],
     ["Enemy combat power", Math.round(enemyHealth).toString()],
     ["Hostile drone", enemyDrone],
@@ -993,6 +1005,13 @@ resetButton.addEventListener("click", () => {
   state.endLogged = true;
   resetScenario();
 });
+
+for (const input of [friendlyCountInput, enemyCountInput]) {
+  input.addEventListener("change", () => {
+    input.value = String(clamp(Number.parseInt(input.value, 10) || 1, 1, 8));
+  });
+}
+
 reiterateButton.addEventListener("click", () => {
   logSimulationEvent("reiterate", missionStatus());
   state.endLogged = true;
