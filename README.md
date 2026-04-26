@@ -39,3 +39,325 @@ Required local environment variables:
 5. End/reset the demo when one side is removed, preserving the final decision
    and requiring a user click to reiterate.
 
+## Decision Percentage Math
+
+The displayed decision percentage is a calibrated probability. It starts with
+the trained Logit Hierarchical Regression model, then applies live battlefield
+multipliers so the UI does not show impossible-looking outcomes such as one VIP
+vehicle defeating eight hostile units with near certainty.
+
+### 1. Build One Candidate Row Per Action
+
+For each available action, the backend creates one CDB90-shaped feature row:
+
+```text
+candidate_features[action] = base_battlefield_features + action_feature_deltas
+```
+
+`base_battlefield_features` comes from live simulation state through
+`simulation/backend/app/sensor_mapping.py`. Examples include friendly/enemy
+weighted combat power, alive counts, VIP health, hostile UAS presence, and
+enemy proximity.
+
+`action_feature_deltas` comes from
+`simulation/backend/app/candidate_actions.py`. For example, counter-UAS improves
+`techa`, `intela`, `aeroa`, and `aira`, while break-contact improves `resa` and
+changes `direction`.
+
+### 2. Preprocess Features
+
+The trained pipeline preprocesses the feature row exactly as it was trained:
+
+```text
+numeric_feature = median_impute(numeric_feature)
+numeric_feature_scaled = (numeric_feature - training_mean) / training_std
+
+categorical_feature = mode_impute(categorical_feature)
+categorical_feature_encoded = one_hot_encode(categorical_feature)
+```
+
+After preprocessing, the row is transformed into a numeric vector:
+
+```text
+phi(x) = preprocessed numeric and one-hot encoded feature vector
+```
+
+### 3. Raw Logit Probability
+
+The Logistic Regression model estimates the probability of `attacker_success`:
+
+```text
+logit = beta_0 + beta_1 * phi_1(x) + beta_2 * phi_2(x) + ... + beta_n * phi_n(x)
+
+raw_logit_probability = sigmoid(logit)
+
+sigmoid(logit) = 1 / (1 + exp(-logit))
+```
+
+In code this is:
+
+```text
+raw_logit_probability = pipeline.predict_proba(candidate_frame)[:, 1]
+```
+
+This is the historical CDB90-like prior. It answers: given a row shaped like
+CDB90, how often did similar attacker/action conditions succeed historically?
+
+### 4. Live Force-Balance Multiplier
+
+The simulation then calculates live weighted combat power:
+
+```text
+unit_weight:
+  VIP  = 0.35
+  UAS  = 0.65
+  INF  = 1.00
+  MRAP = 1.45
+
+friendly_weighted_power = sum(unit_health * unit_weight for live friendly units)
+enemy_weighted_power    = sum(unit_health * unit_weight for live enemy units)
+
+power_ratio = friendly_weighted_power / enemy_weighted_power
+count_ratio = friendly_alive_count / enemy_alive_count
+
+blended_ratio = (0.75 * power_ratio) + (0.25 * count_ratio)
+
+force_balance_multiplier = clamp(blended_ratio ** 0.45, 0.05, 1.15)
+```
+
+Special cases:
+
+```text
+if enemy_weighted_power <= 0: force_balance_multiplier = 1.15
+if friendly_weighted_power <= 0: force_balance_multiplier = 0.05
+```
+
+This multiplier is why `1 VIP vs 8 enemies` now drops sharply even when the raw
+historical logit probability is high.
+
+### 5. Action-Fit Multiplier
+
+Each action also receives an action-fit multiplier:
+
+```text
+counter-uas:
+  1.00 if an enemy UAS is alive
+  0.10 if no enemy UAS is alive
+
+screen-and-push:
+  0.45 if enemy_count >= max(2, friendly_count * 2)
+  0.90 if friendly_weighted_power >= enemy_weighted_power * 0.8
+  0.55 otherwise
+
+break-contact:
+  0.95 if enemy_weighted_power > friendly_weighted_power or VIP health < 70
+  0.75 otherwise
+
+shift-vip-to-cover:
+  0.90 if VIP health < 80 or enemy_weighted_power > friendly_weighted_power
+  0.65 otherwise
+
+hold-defensive-perimeter:
+  0.85 if enemy_count > friendly_count
+  0.55 otherwise
+
+call-for-reinforcement:
+  0.80 if enemy_weighted_power > friendly_weighted_power * 1.25
+  0.45 otherwise
+```
+
+### 6. Displayed Probability
+
+The final displayed probability is:
+
+```text
+adjusted_probability =
+  raw_logit_probability
+  * force_balance_multiplier
+  * action_fit_multiplier
+
+displayed_probability = clamp(adjusted_probability, 0.01, 0.99)
+displayed_percent = round(displayed_probability * 100, 1)
+```
+
+The UI sorts all candidate actions by `displayed_probability`. The top three are
+shown as prominent selectable options. Lower-ranked options are still visible,
+but they are smaller gray cards.
+
+The raw data popup shows the formula inputs:
+
+- `raw_logit_probability`
+- `force_balance_multiplier`
+- `action_fit_multiplier`
+- `probability_formula`
+
+### 7. LaTeX Worked Example: One VIP vs Eight Infantry
+
+Assume the Logit model produces a strong historical prior for
+`shift-vip-to-cover`:
+
+$$
+p_{\text{logit}} = 0.96
+$$
+
+The live battlefield is one friendly VIP vehicle against eight enemy infantry
+units. Unit weights are:
+
+$$
+w_{\text{VIP}} = 0.35
+\qquad
+w_{\text{INF}} = 1.00
+$$
+
+Friendly weighted power is:
+
+$$
+P_{\text{friendly}}
+= 100 \times 0.35
+= 35
+$$
+
+Enemy weighted power is:
+
+$$
+P_{\text{enemy}}
+= 8 \times 90 \times 1.00
+= 720
+$$
+
+The force power ratio is:
+
+$$
+r_{\text{power}}
+= \frac{P_{\text{friendly}}}{P_{\text{enemy}}}
+= \frac{35}{720}
+\approx 0.0486
+$$
+
+The unit count ratio is:
+
+$$
+r_{\text{count}}
+= \frac{N_{\text{friendly}}}{N_{\text{enemy}}}
+= \frac{1}{8}
+= 0.125
+$$
+
+The blended live force ratio is:
+
+$$
+r_{\text{blend}}
+= 0.75r_{\text{power}} + 0.25r_{\text{count}}
+$$
+
+$$
+r_{\text{blend}}
+= (0.75 \times 0.0486) + (0.25 \times 0.125)
+= 0.03645 + 0.03125
+= 0.0677
+$$
+
+The force-balance multiplier is:
+
+$$
+m_{\text{force}}
+= \operatorname{clamp}(r_{\text{blend}}^{0.45}, 0.05, 1.15)
+$$
+
+$$
+m_{\text{force}}
+= \operatorname{clamp}(0.0677^{0.45}, 0.05, 1.15)
+\approx 0.30
+$$
+
+For `shift-vip-to-cover`, assume the action-fit multiplier is:
+
+$$
+m_{\text{action}} = 0.90
+$$
+
+The displayed probability is:
+
+$$
+p_{\text{display}}
+= p_{\text{logit}} \times m_{\text{force}} \times m_{\text{action}}
+$$
+
+$$
+p_{\text{display}}
+= 0.96 \times 0.30 \times 0.90
+= 0.2592
+$$
+
+Therefore the UI displays:
+
+$$
+\text{displayed percent}
+= 0.2592 \times 100
+\approx 26\%
+$$
+
+So the model can still say, "historically this action type looks strong," while
+the live force-balance math says, "but this battlefield is badly overmatched."
+
+## Logit Feature Columns
+
+The trained target is `attacker_success`. The action column is
+`tactical_posture`. The grouped context columns are `war4_theater` and
+`terrain_primary`.
+
+| Feature | Type | Explanation |
+| --- | --- | --- |
+| `tactical_posture` | Categorical | Candidate action posture label sent to the model, such as `HD\|postype_0`, `PD\|postype_0`, or `PD\|postype_1`. |
+| `war4_theater` | Categorical | Broad conflict/theater grouping. The demo uses `Modern local demo`. |
+| `terrain_primary` | Categorical | Primary terrain category for grouping and model context. The demo uses `R` for road/restricted route terrain. |
+| `weather_primary` | Categorical | Primary weather condition. The demo uses `D` as the dry/default condition. |
+| `primary_attacker` | Categorical | CDB90-style attacker actor. In the demo this is the friendly convoy because the options are framed as friendly actions. |
+| `primary_defender` | Categorical | CDB90-style defender actor. In the demo this is the hostile ambush cell. |
+| `postype` | Numeric | Numeric posture type from CDB90-derived tactical posture. `0` is a single-posture action, `1` is a combined posture. |
+| `post1` | Categorical | First tactical posture code. Examples include `HD` for hasty defense and `PD` for prepared defense/withdrawal-style posture. |
+| `post2` | Categorical | Optional second tactical posture code for combined actions. Often `None` for single-posture actions. |
+| `front` | Numeric | Whether the fight is treated as active front/contact. Set when enemy pressure or close contact is high. |
+| `depth` | Numeric | Whether the fight has depth/penetration pressure. Set when enemy power or close contact implies deeper threat. |
+| `aeroa` | Numeric | Attacker air/aerial advantage. Hostile UAS can reduce this; counter-UAS can improve it. |
+| `surpa` | Numeric | Attacker surprise advantage. Close enemy contact or overmatch reduces friendly surprise. |
+| `cea` | Numeric | Combat effectiveness/force-balance proxy. Built from weighted friendly/enemy combat power and count conditions. |
+| `leada` | Numeric | Attacker leadership/command signal. Enabled when a commander decision is active. |
+| `trnga` | Numeric | Attacker training advantage. Currently neutral in the demo. |
+| `morala` | Numeric | Attacker morale/cohesion proxy. Improved by friendly overmatch or healthy VIP, reduced by overmatch against friendlies or VIP damage. |
+| `logsa` | Numeric | Attacker logistics/support signal. Improved by call-for-reinforcement. |
+| `momnta` | Numeric | Attacker momentum. Improved by push/overmatch, reduced by withdrawal, defensive hold, or being badly outnumbered. |
+| `intela` | Numeric | Attacker intelligence/ISR advantage. Friendly UAS and counter-UAS improve this; hostile UAS can reduce it. |
+| `techa` | Numeric | Attacker technology/sensor advantage. Friendly ISR and counter-UAS improve this. |
+| `inita` | Numeric | Attacker initiative. Screen-and-push and friendly power advantage improve this; break-contact and reinforcement delay reduce it. |
+| `quala` | Numeric | Attacker force quality/survivability proxy. In the demo it is strongly influenced by VIP health and shift-to-cover actions. |
+| `resa` | Numeric | Attacker reserve/resilience/recovery signal. Break-contact and VIP-to-cover increase this. |
+| `mobila` | Numeric | Attacker mobility. Screen-and-push and shift-to-cover increase this; break-contact and static defense reduce it. |
+| `aira` | Numeric | Attacker air operations/air control signal. Hostile UAS reduces this; counter-UAS improves it. |
+| `fprepa` | Numeric | Fire preparation/preparatory fires signal. Currently neutral in the demo. |
+| `wxa` | Numeric | Weather advantage signal. Currently neutral in the demo. |
+| `terra` | Numeric | Terrain advantage signal. The demo sets this to `1` for restricted road/cover terrain. |
+| `leadaa` | Numeric | Alternate leadership/command feature from CDB90. Enabled when a commander decision is active. |
+| `plana` | Numeric | Planning/coordination advantage. Improved by active command, screen-and-push, defensive hold, or VIP-to-cover. |
+| `surpaa` | Numeric | Alternate surprise feature. Currently neutral unless future mappings use it. |
+| `mana` | Numeric | Manpower/management/support feature. Improved by call-for-reinforcement. |
+| `logsaa` | Numeric | Alternate logistics feature. Improved by call-for-reinforcement. |
+| `fortsa` | Numeric | Fortification/defensive posture feature. Improved by hold-defensive-perimeter. |
+| `deepa` | Numeric | Deep fight/depth pressure signal. Set when enemy overmatch or close contact creates depth pressure. |
+| `is_hero` | Numeric | CDB90 hero/actor-side indicator. The demo fixes this to `1` for the friendly action side. |
+| `war_initiator` | Numeric | Whether the modeled side is the initiator. The demo fixes this to `1` for friendly candidate actions. |
+| `terrano` | Numeric | Number/count flag for terrain categories. The demo uses `1`. |
+| `terra1` | Categorical | First terrain code. The demo uses `R` for road/restricted terrain. |
+| `terra2` | Categorical | Second terrain code. The demo uses `M` for mixed terrain context. |
+| `terra3` | Categorical | Third terrain code. Usually `None` in the demo unless a mapping supplies another terrain context. |
+| `wxno` | Numeric | Number/count flag for weather categories. The demo uses `1`. |
+| `wx1` | Categorical | First weather code. The demo uses `D`. |
+| `wx2` | Categorical | Second weather code. The demo uses `S` as a static CDB90-compatible weather category. |
+| `wx3` | Categorical | Third weather code. The demo uses `T` as a static CDB90-compatible weather category. |
+| `wx4` | Categorical | Fourth weather code. The demo uses `F` as a static CDB90-compatible weather category. |
+| `wx5` | Categorical | Fifth weather code. The demo uses `T` as a static CDB90-compatible weather category. |
+| `duration1` | Numeric | Baseline duration feature. The demo uses `1.0`. |
+| `duration2` | Numeric | Elapsed scenario time converted to days: `(300 - seconds_remaining) / 86400`. |
+| `dyad_weight` | Numeric | CDB90 dyad/sample weight. The demo uses `1.0`. |
+| `direction` | Numeric | Direction of action. `1` is forward/continue, `-1` is reverse/break-contact. |
+
