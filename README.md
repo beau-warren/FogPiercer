@@ -1,5 +1,7 @@
 # SCSP Fogpiercer
 
+Track: Wargaming
+
 Local hackathon demo for a national defense AI competition.
 
 ## Team

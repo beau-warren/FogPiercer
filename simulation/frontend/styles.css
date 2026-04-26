@@ -1,16 +1,17 @@
 :root {
   color-scheme: dark;
-  --bg: #071017;
-  --panel: #111d28;
-  --panel-2: #172635;
-  --ink: #eef6ff;
-  --muted: #9db0c4;
-  --friendly: #64b5f6;
-  --enemy: #ff867c;
-  --sensor: #ffd166;
-  --good: #58d68d;
-  --warn: #ffc857;
-  --border: #26394c;
+  --bg: #010503;
+  --panel: rgba(0, 24, 11, 0.84);
+  --panel-2: rgba(0, 39, 17, 0.68);
+  --ink: #d6ffe0;
+  --muted: #75b986;
+  --friendly: #39ff88;
+  --enemy: #ff6b4a;
+  --sensor: #b7ff5a;
+  --good: #39ff88;
+  --warn: #d8ff68;
+  --border: rgba(57, 255, 136, 0.32);
+  --terminal-glow: rgba(57, 255, 136, 0.18);
 }
 
 * {
@@ -20,24 +21,48 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: radial-gradient(circle at top left, #17293a, var(--bg) 42%);
+  background:
+    radial-gradient(circle at 16% 8%, rgba(28, 255, 113, 0.16), transparent 30%),
+    linear-gradient(180deg, rgba(4, 20, 10, 0.96), var(--bg) 44%);
   color: var(--ink);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Courier New", Courier, monospace;
+  text-shadow: 0 0 10px rgba(57, 255, 136, 0.16);
+}
+
+body::before {
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(57, 255, 136, 0.035) 0,
+    rgba(57, 255, 136, 0.035) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+  content: "";
+  inset: 0;
+  mix-blend-mode: screen;
+  opacity: 0.36;
+  pointer-events: none;
+  position: fixed;
+  z-index: 100;
 }
 
 button {
-  border: 1px solid #4b86b8;
-  border-radius: 10px;
-  background: #1f6da3;
-  color: white;
+  border: 1px solid rgba(57, 255, 136, 0.48);
+  border-radius: 4px;
+  background: rgba(0, 58, 24, 0.78);
+  box-shadow: inset 0 0 18px rgba(57, 255, 136, 0.08), 0 0 12px rgba(57, 255, 136, 0.08);
+  color: var(--ink);
   cursor: pointer;
   font: inherit;
   font-weight: 700;
   padding: 0.75rem 0.9rem;
+  text-transform: uppercase;
 }
 
 button:hover:not(:disabled) {
-  filter: brightness(1.12);
+  background: rgba(9, 94, 42, 0.86);
+  border-color: rgba(183, 255, 90, 0.72);
+  filter: brightness(1.08);
 }
 
 button:disabled {
@@ -46,8 +71,8 @@ button:disabled {
 }
 
 button.secondary {
-  background: #26394c;
-  border-color: #52677d;
+  background: rgba(6, 32, 15, 0.86);
+  border-color: rgba(117, 185, 134, 0.48);
 }
 
 button.compact {
@@ -56,8 +81,8 @@ button.compact {
 
 .icon-button {
   align-items: center;
-  background: #26394c;
-  border-color: #52677d;
+  background: rgba(0, 31, 14, 0.88);
+  border-color: rgba(57, 255, 136, 0.42);
   border-radius: 999px;
   display: inline-flex;
   height: 2rem;
@@ -79,9 +104,9 @@ button.compact {
 .decision-panel,
 .map-panel {
   border: 1px solid var(--border);
-  border-radius: 16px;
-  background: rgba(17, 29, 40, 0.92);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(0, 30, 13, 0.86), rgba(0, 10, 5, 0.92));
+  box-shadow: 0 0 0 1px rgba(57, 255, 136, 0.06), 0 18px 48px rgba(0, 0, 0, 0.58), 0 0 34px var(--terminal-glow);
 }
 
 .command-bar {
@@ -114,11 +139,11 @@ button.compact {
 
 .timer-card {
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 6px;
   min-width: 130px;
   padding: 0.75rem;
   text-align: right;
-  background: #0c1822;
+  background: rgba(0, 12, 6, 0.92);
 }
 
 .timer-card span,
@@ -135,9 +160,9 @@ button.compact {
 }
 
 .active-decision {
-  border-color: #3d6f45;
+  border-color: rgba(57, 255, 136, 0.42);
   padding: 0.85rem 1rem;
-  background: linear-gradient(90deg, rgba(35, 84, 47, 0.7), rgba(17, 29, 40, 0.92));
+  background: linear-gradient(90deg, rgba(0, 64, 25, 0.72), rgba(0, 10, 5, 0.92));
 }
 
 .active-decision strong {
@@ -186,22 +211,22 @@ button.compact {
 
 .decision-card {
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 6px;
   background: var(--panel-2);
   padding: 0.85rem;
   transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .decision-card.selected {
-  background: linear-gradient(135deg, rgba(35, 84, 47, 0.95), rgba(29, 64, 46, 0.92));
+  background: linear-gradient(135deg, rgba(0, 85, 34, 0.94), rgba(0, 36, 16, 0.92));
   border-color: var(--good);
-  box-shadow: 0 0 0 2px rgba(88, 214, 141, 0.18);
+  box-shadow: 0 0 0 1px rgba(57, 255, 136, 0.34), 0 0 28px rgba(57, 255, 136, 0.18);
 }
 
 .decision-card.alternate {
   position: relative;
-  background: rgba(38, 57, 76, 0.45);
-  border-color: rgba(82, 103, 125, 0.55);
+  background: rgba(0, 22, 10, 0.46);
+  border-color: rgba(117, 185, 134, 0.26);
   box-shadow: none;
   opacity: 0.74;
   padding: 0.65rem;
@@ -247,7 +272,7 @@ button.compact {
 }
 
 .decision-card.selected p {
-  color: #d5ecdc;
+  color: #d6ffe0;
 }
 
 .decision-actions {
@@ -267,8 +292,8 @@ button.compact {
 
 .decision-card.selected .select-decision {
   background: var(--good);
-  border-color: #9af0b7;
-  color: #071017;
+  border-color: #b7ff5a;
+  color: #001006;
 }
 
 .score {
@@ -315,9 +340,9 @@ button.compact {
 }
 
 .force-controls input {
-  background: #0c1822;
-  border: 1px solid #52677d;
-  border-radius: 10px;
+  background: rgba(0, 10, 5, 0.96);
+  border: 1px solid rgba(57, 255, 136, 0.36);
+  border-radius: 4px;
   color: var(--ink);
   font: inherit;
   font-weight: 800;
@@ -333,7 +358,7 @@ button.compact {
 }
 
 .force-controls .checkbox-control input {
-  accent-color: #1f9cf0;
+  accent-color: var(--good);
   height: 1rem;
   padding: 0;
   width: 1rem;
@@ -401,14 +426,14 @@ button.compact {
 }
 
 .map-scrim {
-  fill: rgba(6, 14, 20, 0.22);
+  fill: rgba(0, 8, 4, 0.08);
   pointer-events: none;
 }
 
 .sensor-ring {
-  fill: rgba(255, 209, 102, 0.025);
+  fill: rgba(183, 255, 90, 0.018);
   pointer-events: none;
-  stroke: rgba(255, 209, 102, 0.28);
+  stroke: rgba(183, 255, 90, 0.3);
   stroke-dasharray: 7 11;
   stroke-width: 2;
 }
@@ -431,7 +456,7 @@ button.compact {
 }
 
 .fire-tracer {
-  filter: drop-shadow(0 0 7px rgba(255, 209, 102, 0.95));
+  filter: drop-shadow(0 0 7px rgba(183, 255, 90, 0.95));
   pointer-events: none;
   stroke: var(--sensor);
   stroke-linecap: round;
@@ -443,11 +468,11 @@ button.compact {
 
 .unit.dragging {
   cursor: grabbing;
-  filter: drop-shadow(0 0 12px rgba(255, 209, 102, 0.8));
+  filter: drop-shadow(0 0 12px rgba(183, 255, 90, 0.8));
 }
 
 .unit-frame {
-  fill: rgba(7, 16, 23, 0.94);
+  fill: rgba(0, 8, 4, 0.96);
   stroke-width: 3;
 }
 
@@ -478,7 +503,7 @@ button.compact {
 }
 
 .health-bar-bg {
-  fill: #26394c;
+  fill: rgba(57, 255, 136, 0.16);
 }
 
 .health-bar {
@@ -490,10 +515,10 @@ button.compact {
 }
 
 .raw-data-popover {
-  background: rgba(10, 20, 29, 0.98);
-  border: 1px solid #587085;
-  border-radius: 16px;
-  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.45);
+  background: rgba(0, 10, 5, 0.98);
+  border: 1px solid rgba(57, 255, 136, 0.42);
+  border-radius: 8px;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.62), 0 0 36px rgba(57, 255, 136, 0.16);
   color: var(--ink);
   max-height: min(620px, calc(100vh - 2rem));
   overflow: hidden;
@@ -506,7 +531,7 @@ button.compact {
 
 .popover-header {
   align-items: center;
-  background: #132333;
+  background: rgba(0, 38, 16, 0.94);
   border-bottom: 1px solid var(--border);
   cursor: move;
   display: flex;
@@ -554,7 +579,7 @@ button.compact {
 }
 
 .raw-data-table td {
-  color: #dce8f3;
+  color: #d6ffe0;
   word-break: break-word;
 }
 
