@@ -303,6 +303,23 @@ function missionStatus() {
   return "running";
 }
 
+function endStateDetails() {
+  const vipKilled = !state.units.some((unit) => unit.id === "vip" && unit.health > 0);
+  const friendlyTotal = state.units.filter((unit) => unit.side === "friendly").length;
+  const enemyTotal = state.units.filter((unit) => unit.side === "enemy").length;
+  const friendlyAlive = getFriendlyUnits().length;
+  const enemyAlive = getEnemyUnits().length;
+  return {
+    vipKilled,
+    allFriendliesEliminated: friendlyAlive === 0,
+    allEnemiesEliminated: enemyAlive === 0,
+    friendlyAlive,
+    friendlyTotal,
+    enemyAlive,
+    enemyTotal,
+  };
+}
+
 function logSimulationEvent(eventType, status = missionStatus()) {
   fetch(`${API_BASE_URL}/api/events`, {
     method: "POST",
@@ -749,8 +766,8 @@ function updateSituationText() {
   const enemyCount = getEnemyUnits().length;
 
   if (state.ended) {
-    const vipAlive = state.units.some((unit) => unit.id === "vip" && unit.health > 0);
-    if (!vipAlive) {
+    const details = endStateDetails();
+    if (details.vipKilled) {
       situationTitle.textContent = "Mission failed: VIP lost";
       battlefieldStatus.textContent = "VIP casualty";
     } else if (friendlyCount === 0) {
@@ -763,7 +780,12 @@ function updateSituationText() {
       situationTitle.textContent = "Demo clock expired: final decision frozen";
       battlefieldStatus.textContent = "Scenario complete";
     }
-    situationCopy.textContent = `Final decision: ${state.selectedDecision?.title ?? "No decision selected"}.`;
+    situationCopy.textContent = [
+      `Final decision: ${state.selectedDecision?.title ?? "No decision selected"}.`,
+      `VIP killed: ${details.vipKilled ? "yes" : "no"}.`,
+      `All friendlies eliminated: ${details.allFriendliesEliminated ? "yes" : "no"} (${details.friendlyAlive}/${details.friendlyTotal} alive).`,
+      `All enemies eliminated: ${details.allEnemiesEliminated ? "yes" : "no"} (${details.enemyAlive}/${details.enemyTotal} alive).`,
+    ].join(" ");
     return;
   }
 

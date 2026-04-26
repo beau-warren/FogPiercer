@@ -339,6 +339,11 @@ def log_simulation_event(event: SimulationEvent) -> None:
     append_jsonl(directory / "events.jsonl", payload)
 
     if event.event_type in {"ended", "reset", "reiterate"}:
+        friendly_alive = sum(1 for unit in event.units if unit.side == "friendly" and unit.health > 0)
+        enemy_alive = sum(1 for unit in event.units if unit.side == "enemy" and unit.health > 0)
+        friendly_total = sum(1 for unit in event.units if unit.side == "friendly")
+        enemy_total = sum(1 for unit in event.units if unit.side == "enemy")
+        vip_health = next((unit.health for unit in event.units if unit.id == "vip"), 0)
         summary = {
             "timestamp": payload["timestamp"],
             "run_id": event.run_id,
@@ -347,9 +352,14 @@ def log_simulation_event(event: SimulationEvent) -> None:
             "selected_decision_id": event.selected_decision_id,
             "ticks": event.tick,
             "seconds_elapsed": round(DEMO_SECONDS - event.seconds_remaining, 2),
-            "friendly_alive": sum(1 for unit in event.units if unit.side == "friendly" and unit.health > 0),
-            "enemy_alive": sum(1 for unit in event.units if unit.side == "enemy" and unit.health > 0),
-            "vip_health": next((unit.health for unit in event.units if unit.id == "vip"), 0),
+            "vip_killed": vip_health <= 0,
+            "all_friendlies_eliminated": friendly_alive == 0,
+            "all_enemies_eliminated": enemy_alive == 0,
+            "friendly_alive": friendly_alive,
+            "friendly_total": friendly_total,
+            "enemy_alive": enemy_alive,
+            "enemy_total": enemy_total,
+            "vip_health": vip_health,
             "note": "Synthetic demo telemetry only. Use as candidate retraining data after human review; no automatic retraining is performed.",
         }
         (directory / "final_summary.json").write_text(
