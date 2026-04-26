@@ -14,7 +14,7 @@ BASE_CDB90_FEATURES: dict[str, Any] = {
     "war4_theater": "Modern local demo",
     "terrain_primary": "R",
     "weather_primary": "D",
-    "primary_attacker": "Friendly convoy",
+    "primary_attacker": "Friendly VIP escort",
     "primary_defender": "Hostile ambush cell",
     "front": 0,
     "depth": 0,

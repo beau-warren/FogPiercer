@@ -54,9 +54,9 @@ Implemented in this pass:
 - Randomized 2D battlefield with road, cover, danger zone, and sensor rings.
 - Simple military-style symbology: blue friendly rectangles/circles and red
   hostile diamonds.
-- Friendly VIP convoy, escort, infantry, friendly ISR drone, hostile drone, and
-  hostile infantry cells.
-- Coordinated enemy movement toward the convoy.
+- Friendly VIP vehicle, escort, infantry, friendly ISR drone, hostile drone,
+  and hostile infantry cells.
+- Coordinated enemy movement toward the VIP escort.
 - Drag-and-drop movement for any live unit.
 - Always-visible top 3 placeholder decisions that update with battlefield
   state.

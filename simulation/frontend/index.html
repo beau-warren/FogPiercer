@@ -11,10 +11,10 @@
       <section class="command-bar" aria-label="Situation summary">
         <div>
           <p class="eyebrow">SCSP Fogpiercer // Local Demo</p>
-          <h1 id="situation-title">VIP convoy entering hostile road segment</h1>
+          <h1 id="situation-title">VIP entering hostile road segment</h1>
           <p id="situation-copy">
-            Friendly convoy is moving through restricted terrain while hostile
-            drone and infantry cells coordinate an ambush.
+            Friendly VIP escort is moving through restricted terrain while
+            hostile drone and infantry cells coordinate an ambush.
           </p>
         </div>
         <div class="timer-card">
@@ -26,6 +26,7 @@
       <section class="active-decision" role="status" aria-live="polite">
         <span>Current selected option</span>
         <strong id="current-decision">Awaiting commander decision</strong>
+        <em id="selected-decision-trend">Selected trend: awaiting selection</em>
       </section>
 
       <section class="workspace">
@@ -69,7 +70,6 @@
             <div class="legend" aria-label="Map legend">
               <span><i class="legend-box friendly"></i>Friendly</span>
               <span><i class="legend-box enemy"></i>Enemy</span>
-              <span><i class="legend-box sensor"></i>Sensor</span>
             </div>
           </div>
           <svg id="battlefield" viewBox="0 0 1000 620" role="img" aria-label="Battlefield map">
@@ -85,7 +85,8 @@
               </marker>
             </defs>
             <rect width="1000" height="620" fill="#101923" />
-            <rect width="1000" height="620" fill="url(#grid)" opacity="0.7" />
+            <image href="./assets/satellite-road.png" x="0" y="0" width="1000" height="620" preserveAspectRatio="none" class="map-background" />
+            <rect width="1000" height="620" class="map-scrim" />
             <g id="terrain-layer"></g>
             <g id="sensor-layer"></g>
             <g id="movement-layer"></g>

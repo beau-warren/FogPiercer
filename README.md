@@ -312,7 +312,7 @@ The trained target is `attacker_success`. The action column is
 | `war4_theater` | Categorical | Broad conflict/theater grouping. The demo uses `Modern local demo`. |
 | `terrain_primary` | Categorical | Primary terrain category for grouping and model context. The demo uses `R` for road/restricted route terrain. |
 | `weather_primary` | Categorical | Primary weather condition. The demo uses `D` as the dry/default condition. |
-| `primary_attacker` | Categorical | CDB90-style attacker actor. In the demo this is the friendly convoy because the options are framed as friendly actions. |
+| `primary_attacker` | Categorical | CDB90-style attacker actor. In the demo this is the friendly VIP escort because the options are framed as friendly actions. |
 | `primary_defender` | Categorical | CDB90-style defender actor. In the demo this is the hostile ambush cell. |
 | `postype` | Numeric | Numeric posture type from CDB90-derived tactical posture. `0` is a single-posture action, `1` is a combined posture. |
 | `post1` | Categorical | First tactical posture code. Examples include `HD` for hasty defense and `PD` for prepared defense/withdrawal-style posture. |

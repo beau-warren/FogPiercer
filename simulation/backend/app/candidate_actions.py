@@ -14,8 +14,8 @@ ACTION_CATALOG: dict[str, dict[str, Any]] = {
         "primary": True,
     },
     "break-contact": {
-        "title": "Break contact and reverse convoy",
-        "summary": "Pull the VIP vehicle back through the cleared road segment while escorts cover.",
+        "title": "Break contact and extract VIP",
+        "summary": "Pull the VIP vehicle back through the cleared road segment while escorts cover the withdrawal.",
         "posture": {"tactical_posture": "PD|postype_0", "postype": 0, "post1": "PD", "post2": None},
         "deltas": {"resa": 1, "mobila": -1, "inita": -1, "direction": -1, "momnta": -1},
         "primary": True,
@@ -29,7 +29,7 @@ ACTION_CATALOG: dict[str, dict[str, Any]] = {
     },
     "hold-defensive-perimeter": {
         "title": "Hold defensive perimeter",
-        "summary": "Freeze the convoy, consolidate fields of fire, and force enemy cells to close into covered sectors.",
+        "summary": "Freeze the VIP escort, consolidate fields of fire, and force enemy cells to close into covered sectors.",
         "posture": {"tactical_posture": "HD|postype_0", "postype": 0, "post1": "HD", "post2": None},
         "deltas": {"fortsa": 1, "plana": 1, "momnta": -1, "mobila": -1},
         "primary": False,

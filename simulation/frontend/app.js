@@ -15,6 +15,7 @@ const sensorSummary = document.querySelector("#sensor-summary");
 const situationTitle = document.querySelector("#situation-title");
 const situationCopy = document.querySelector("#situation-copy");
 const currentDecision = document.querySelector("#current-decision");
+const selectedDecisionTrend = document.querySelector("#selected-decision-trend");
 const battlefieldStatus = document.querySelector("#battlefield-status");
 const demoClock = document.querySelector("#demo-clock");
 const resetButton = document.querySelector("#reset-button");
@@ -38,6 +39,8 @@ const UNIT_COUNT_DEFAULTS = {
   friendly: 4,
   enemy: 3,
 };
+
+const GROUND_UNIT_RADIUS = 26;
 
 const terrainTemplates = [
   {
@@ -69,6 +72,18 @@ const terrainTemplates = [
   },
 ];
 
+const BUILDING_WALLS = [
+  { x: 0, y: 365, width: 130, height: 150 },
+  { x: 130, y: 386, width: 82, height: 115 },
+  { x: 205, y: 500, width: 88, height: 90 },
+  { x: 300, y: 472, width: 105, height: 105 },
+  { x: 406, y: 228, width: 92, height: 76 },
+  { x: 510, y: 202, width: 116, height: 94 },
+  { x: 712, y: 224, width: 124, height: 104 },
+  { x: 808, y: 286, width: 74, height: 112 },
+  { x: 888, y: 204, width: 96, height: 148 },
+];
+
 const state = {
   runId: createRunId(),
   tick: 0,
@@ -89,6 +104,7 @@ const state = {
   modelFetchInFlight: false,
   lastModelFetchAt: 0,
   endLogged: false,
+  selectedTrend: null,
 };
 
 function randomBetween(min, max) {
@@ -107,6 +123,79 @@ function clamp(value, min, max) {
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function isGroundUnit(unit) {
+  return unit.type !== "UAS";
+}
+
+function paddedRect(rect, padding) {
+  return {
+    x: rect.x - padding,
+    y: rect.y - padding,
+    width: rect.width + padding * 2,
+    height: rect.height + padding * 2,
+  };
+}
+
+function pointInsideRect(point, rect) {
+  return (
+    point.x >= rect.x
+    && point.x <= rect.x + rect.width
+    && point.y >= rect.y
+    && point.y <= rect.y + rect.height
+  );
+}
+
+function segmentIntersectsRect(a, b, rect) {
+  const samples = 28;
+  for (let index = 1; index < samples; index += 1) {
+    const t = index / samples;
+    const point = {
+      x: a.x + (b.x - a.x) * t,
+      y: a.y + (b.y - a.y) * t,
+    };
+    if (pointInsideRect(point, rect)) return true;
+  }
+  return false;
+}
+
+function hasBuildingLineOfSightBlock(source, target) {
+  return BUILDING_WALLS.some((wall) => segmentIntersectsRect(source, target, wall));
+}
+
+function pushPointOutsideRect(point, rect) {
+  const left = Math.abs(point.x - rect.x);
+  const right = Math.abs(rect.x + rect.width - point.x);
+  const top = Math.abs(point.y - rect.y);
+  const bottom = Math.abs(rect.y + rect.height - point.y);
+  const nearest = Math.min(left, right, top, bottom);
+
+  if (nearest === left) return { x: rect.x - 1, y: point.y };
+  if (nearest === right) return { x: rect.x + rect.width + 1, y: point.y };
+  if (nearest === top) return { x: point.x, y: rect.y - 1 };
+  return { x: point.x, y: rect.y + rect.height + 1 };
+}
+
+function constrainGroundPosition(unit, position) {
+  if (!isGroundUnit(unit)) return position;
+
+  let next = {
+    x: clamp(position.x, 30, WIDTH - 30),
+    y: clamp(position.y, 30, HEIGHT - 30),
+  };
+
+  for (const wall of BUILDING_WALLS) {
+    const rect = paddedRect(wall, GROUND_UNIT_RADIUS);
+    if (pointInsideRect(next, rect)) {
+      next = pushPointOutsideRect(next, rect);
+    }
+  }
+
+  return {
+    x: clamp(next.x, 30, WIDTH - 30),
+    y: clamp(next.y, 30, HEIGHT - 30),
+  };
 }
 
 function nearestUnit(source, candidates) {
@@ -161,6 +250,8 @@ function createUnit({ id, side, type, label, x, y, speed, range, health }) {
 function missionStatus() {
   const friendlyAlive = getFriendlyUnits().length;
   const enemyAlive = getEnemyUnits().length;
+  const vipAlive = state.units.some((unit) => unit.id === "vip" && unit.health > 0);
+  if (!vipAlive) return "enemy_victory";
   if (friendlyAlive === 0) return "enemy_victory";
   if (enemyAlive === 0) return "friendly_victory";
   if (state.secondsRemaining <= 0) return "clock_expired";
@@ -273,9 +364,11 @@ function resetScenario() {
   state.modelFetchInFlight = false;
   state.lastModelFetchAt = 0;
   state.endLogged = false;
+  state.selectedTrend = null;
   hideRawDataPopover();
   reiterateButton.disabled = true;
   currentDecision.textContent = "Awaiting commander decision";
+  selectedDecisionTrend.textContent = "Selected trend: awaiting selection";
 
   state.units = [
     ...spawnFriendlyUnits(configuredUnitCount("friendly")),
@@ -297,10 +390,10 @@ function getEnemyUnits() {
 function chooseEnemyTargets() {
   const vip = state.units.find((unit) => unit.id === "vip" && unit.health > 0);
   const friendly = getFriendlyUnits();
-  const convoyCenter = vip || friendly[0];
+  const vipCenter = vip || friendly[0];
 
   for (const enemy of getEnemyUnits()) {
-    const target = enemy.type === "UAS" ? convoyCenter : nearestUnit(enemy, friendly);
+    const target = enemy.type === "UAS" ? vipCenter : nearestUnit(enemy, friendly);
     if (!target) continue;
 
     const flank = enemy.id.endsWith("2") ? -70 : 70;
@@ -382,10 +475,12 @@ function moveUnitTowardTarget(unit) {
   if (length < 1) return;
 
   const step = unit.speed;
-  unit.x += (dx / length) * step;
-  unit.y += (dy / length) * step;
-  unit.x = clamp(unit.x, 30, WIDTH - 30);
-  unit.y = clamp(unit.y, 30, HEIGHT - 30);
+  const next = constrainGroundPosition(unit, {
+    x: unit.x + (dx / length) * step,
+    y: unit.y + (dy / length) * step,
+  });
+  unit.x = next.x;
+  unit.y = next.y;
 }
 
 function resolveCombat() {
@@ -394,7 +489,7 @@ function resolveCombat() {
 
   for (const enemy of enemies) {
     const target = nearestUnit(enemy, friendlies);
-    if (target && distance(enemy, target) < enemy.range) {
+    if (target && distance(enemy, target) < enemy.range && !hasBuildingLineOfSightBlock(enemy, target)) {
       target.health -= enemy.damage;
       emitFireTracer(enemy, target);
     }
@@ -402,7 +497,7 @@ function resolveCombat() {
 
   for (const friendly of friendlies) {
     const target = nearestUnit(friendly, enemies);
-    if (target && distance(friendly, target) < friendly.range) {
+    if (target && distance(friendly, target) < friendly.range && !hasBuildingLineOfSightBlock(friendly, target)) {
       let effect = friendly.damage;
       if (state.selectedDecision?.id === "counter-uas" && target.type === "UAS") {
         effect *= 2.8;
@@ -451,9 +546,9 @@ function computeHeuristicDecisions() {
     },
     {
       id: "break-contact",
-      title: "Break contact and reverse convoy",
+      title: "Break contact and extract VIP",
       score: clamp(68 + threat * 0.2 + (vipHealth < 55 ? 14 : 0), 1, 99),
-      summary: "Pull the VIP vehicle back through the cleared road segment while escorts cover.",
+      summary: "Pull the VIP vehicle back through the cleared road segment while escorts cover the withdrawal.",
       modelSource: "local heuristic fallback",
     },
     {
@@ -470,6 +565,41 @@ function computeHeuristicDecisions() {
 
 function computeDecisions() {
   return state.modelDecisions.length > 0 ? state.modelDecisions : computeHeuristicDecisions();
+}
+
+function trendLabelFromSlope(slope) {
+  if (Math.abs(slope) < 0.25) return "steady";
+  const sign = slope > 0 ? "+" : "";
+  return `${sign}${slope.toFixed(1)} pp/min`;
+}
+
+function updateSelectedDecisionTrend(decisions) {
+  if (!state.selectedDecision) {
+    selectedDecisionTrend.textContent = "Selected trend: awaiting selection";
+    selectedDecisionTrend.classList.remove("up", "down");
+    return;
+  }
+
+  const current = decisions.find((decision) => decision.id === state.selectedDecision.id)
+    ?? state.selectedDecision;
+  const now = Date.now();
+  const score = Number(current.score) || 0;
+  const previous = state.selectedTrend;
+  let slope = previous?.slope ?? 0;
+
+  if (!previous || previous.id !== current.id) {
+    slope = 0;
+    state.selectedTrend = { id: current.id, score, at: now, slope };
+  } else if (Math.abs(score - previous.score) >= 0.05) {
+    const elapsedMinutes = Math.max((now - previous.at) / 60000, 1 / 60);
+    slope = clamp((score - previous.score) / elapsedMinutes, -99, 99);
+    state.selectedTrend = { id: current.id, score, at: now, slope };
+  }
+
+  currentDecision.textContent = `${current.title} (${Math.round(score)}% estimated success)`;
+  selectedDecisionTrend.textContent = `Selected trend: ${trendLabelFromSlope(slope)}`;
+  selectedDecisionTrend.classList.toggle("up", slope > 0.25);
+  selectedDecisionTrend.classList.toggle("down", slope < -0.25);
 }
 
 function buildModelRows(decision) {
@@ -554,7 +684,11 @@ function updateSituationText() {
   const enemyCount = getEnemyUnits().length;
 
   if (state.ended) {
-    if (friendlyCount === 0) {
+    const vipAlive = state.units.some((unit) => unit.id === "vip" && unit.health > 0);
+    if (!vipAlive) {
+      situationTitle.textContent = "Mission failed: VIP lost";
+      battlefieldStatus.textContent = "VIP casualty";
+    } else if (friendlyCount === 0) {
       situationTitle.textContent = "Mission failed: friendly force combat ineffective";
       battlefieldStatus.textContent = "Enemy force controls the road segment";
     } else if (enemyCount === 0) {
@@ -572,15 +706,15 @@ function updateSituationText() {
     situationTitle.textContent = "Hostile ambush is inside effective range";
     battlefieldStatus.textContent = "High threat";
   } else if (threat > 42) {
-    situationTitle.textContent = "Enemy elements converging on VIP convoy";
+    situationTitle.textContent = "Enemy elements converging on VIP";
     battlefieldStatus.textContent = "Ambush developing";
   } else {
-    situationTitle.textContent = "VIP convoy entering hostile road segment";
+    situationTitle.textContent = "VIP entering hostile road segment";
     battlefieldStatus.textContent = "Contact likely";
   }
 
   situationCopy.textContent =
-    "Friendly convoy is moving through restricted terrain while hostile drone and infantry cells coordinate an ambush.";
+    "Friendly VIP escort is moving through restricted terrain while hostile drone and infantry cells coordinate an ambush.";
 }
 
 function serializeSimulationState() {
@@ -658,7 +792,7 @@ function tick() {
 
   resolveCombat();
 
-  if (getFriendlyUnits().length === 0 || getEnemyUnits().length === 0 || state.secondsRemaining <= 0) {
+  if (missionStatus() !== "running") {
     state.ended = true;
     reiterateButton.disabled = false;
     if (!state.endLogged) {
@@ -691,43 +825,6 @@ function el(name, attrs = {}) {
 
 function renderTerrain() {
   terrainLayer.replaceChildren();
-  terrainLayer.appendChild(el("path", { d: state.terrain.road, class: "road" }));
-  terrainLayer.appendChild(el("path", { d: state.terrain.road, class: "road-line" }));
-
-  for (const [x, y, width, height] of state.terrain.cover) {
-    terrainLayer.appendChild(el("rect", {
-      x,
-      y,
-      width,
-      height,
-      rx: 18,
-      class: "cover",
-    }));
-  }
-
-  const [x, y, width, height] = state.terrain.danger;
-  terrainLayer.appendChild(el("rect", {
-    x,
-    y,
-    width,
-    height,
-    rx: 28,
-    class: "danger-zone",
-  }));
-}
-
-function renderSensors() {
-  sensorLayer.replaceChildren();
-  for (const unit of state.units.filter((item) => item.health > 0 && item.side === "friendly")) {
-    if (unit.type === "UAS" || unit.type === "MRAP") {
-      sensorLayer.appendChild(el("circle", {
-        cx: unit.x,
-        cy: unit.y,
-        r: unit.type === "UAS" ? UNIT_STATS.UAS.range : UNIT_STATS.MRAP.range,
-        class: "sensor-ring",
-      }));
-    }
-  }
 }
 
 function renderMovement() {
@@ -856,6 +953,7 @@ function renderUnits() {
 
 function renderDecisionList() {
   const decisions = computeDecisions();
+  updateSelectedDecisionTrend(decisions);
   state.renderedDecisions = decisions;
   const signature = decisions
     .map((decision) => `${decision.id}:${Math.round(decision.score)}:${decision.isAlternate ? "alt" : "primary"}`)
@@ -910,8 +1008,16 @@ function renderDecisionList() {
         const decision = state.renderedDecisions[index];
         if (!decision || decision.isAlternate) return;
         state.selectedDecision = decision;
+        state.selectedTrend = {
+          id: decision.id,
+          score: Number(decision.score) || 0,
+          at: Date.now(),
+          slope: 0,
+        };
         state.lastDecisionRenderAt = 0;
         currentDecision.textContent = `${decision.title} (${Math.round(decision.score)}% estimated success)`;
+        selectedDecisionTrend.textContent = "Selected trend: steady";
+        selectedDecisionTrend.classList.remove("up", "down");
         logSimulationEvent("selected_decision");
         applySelectedDecision();
         render();
@@ -981,7 +1087,7 @@ function renderClock() {
 
 function render() {
   renderTerrain();
-  renderSensors();
+  sensorLayer.replaceChildren();
   renderMovement();
   renderFireTracers();
   renderUnits();
@@ -996,8 +1102,12 @@ svg.addEventListener("pointermove", (event) => {
   const unit = state.units.find((item) => item.id === state.dragging.id);
   if (!unit) return;
   const point = svgPointFromEvent(event);
-  unit.x = clamp(point.x - state.dragging.dx, 30, WIDTH - 30);
-  unit.y = clamp(point.y - state.dragging.dy, 30, HEIGHT - 30);
+  const next = constrainGroundPosition(unit, {
+    x: point.x - state.dragging.dx,
+    y: point.y - state.dragging.dy,
+  });
+  unit.x = next.x;
+  unit.y = next.y;
   unit.targetX = unit.x;
   unit.targetY = unit.y;
   render();
