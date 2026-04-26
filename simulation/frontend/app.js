@@ -4,6 +4,7 @@ const TICK_MS = 240;
 const DEMO_SECONDS = 5 * 60;
 const API_BASE_URL = "http://127.0.0.1:8000";
 const VIP_EXTRACTION_X = 900;
+const LOCAL_SENSOR_RANGE = 220;
 
 const svg = document.querySelector("#battlefield");
 const terrainLayer = document.querySelector("#terrain-layer");
@@ -28,6 +29,7 @@ const rawDataClose = document.querySelector("#raw-data-close");
 const rawDataDragHandle = document.querySelector("#raw-data-drag-handle");
 const friendlyCountInput = document.querySelector("#friendly-count");
 const enemyCountInput = document.querySelector("#enemy-count");
+const droneAmbushInput = document.querySelector("#drone-ambush");
 
 const UNIT_STATS = {
   VIP: { health: 100, speed: 0.75, range: 70, damage: 0.18 },
@@ -124,6 +126,26 @@ function clamp(value, min, max) {
 
 function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function distanceToMovementSegment(unit, target) {
+  const start = { x: unit.lastX ?? unit.x, y: unit.lastY ?? unit.y };
+  const end = { x: unit.x, y: unit.y };
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return distance(unit, target);
+
+  const t = clamp(
+    ((target.x - start.x) * dx + (target.y - start.y) * dy) / lengthSquared,
+    0,
+    1
+  );
+  return Math.hypot(start.x + dx * t - target.x, start.y + dy * t - target.y);
+}
+
+function withinFpvImpactRange(drone, target) {
+  return distance(drone, target) < drone.range || distanceToMovementSegment(drone, target) < drone.range;
 }
 
 function isGroundUnit(unit) {
@@ -271,6 +293,10 @@ function configuredUnitCount(side) {
   return clamp(Number.parseInt(input?.value ?? fallback, 10) || fallback, 1, 8);
 }
 
+function droneAmbushEnabled() {
+  return Boolean(droneAmbushInput?.checked);
+}
+
 function createUnit({ id, side, type, label, x, y, speed, range, health }) {
   const stats = UNIT_STATS[type] ?? UNIT_STATS.INF;
   const maxHealth = health ?? stats.health;
@@ -402,14 +428,16 @@ function spawnFriendlyUnits(count) {
 
 function spawnEnemyUnits(count) {
   const units = [];
+  const useDroneAmbush = droneAmbushEnabled();
   for (let index = 0; index < count; index += 1) {
-    const type = unitTypeForSideIndex("enemy", index);
+    const isController = useDroneAmbush && index === count - 1;
+    const type = useDroneAmbush ? (isController ? "INF" : "UAS") : unitTypeForSideIndex("enemy", index);
     const upperLane = index % 2 === 0;
     units.push(createUnit({
-      id: `enemy-${type.toLowerCase()}-${index + 1}`,
+      id: isController ? "enemy-drone-controller" : `enemy-${type.toLowerCase()}-${index + 1}`,
       side: "enemy",
       type,
-      label: labelForUnit("enemy", type, index),
+      label: isController ? "CTRL" : labelForUnit("enemy", type, index),
       x: clamp(randomBetween(610, 875) - index * 18, 470, WIDTH - 60),
       y: upperLane ? randomBetween(110, 230) : randomBetween(275, 390),
     }));
@@ -463,13 +491,17 @@ function getEnemyUnits() {
 }
 
 function chooseEnemyTargets() {
-  const vip = state.units.find((unit) => unit.id === "vip" && unit.health > 0);
   const friendly = getFriendlyUnits();
-  const vipCenter = vip || friendly[0];
 
   for (const enemy of getEnemyUnits()) {
-    const target = enemy.type === "UAS" ? vipCenter : nearestUnit(enemy, friendly);
+    const target = nearestUnit(enemy, friendly);
     if (!target) continue;
+
+    if (enemy.type === "UAS") {
+      enemy.targetX = clamp(target.x, 45, WIDTH - 45);
+      enemy.targetY = clamp(target.y, 45, HEIGHT - 45);
+      continue;
+    }
 
     const flank = enemy.id.endsWith("2") ? -70 : 70;
     enemy.targetX = clamp(target.x + flank, 45, WIDTH - 45);
@@ -575,12 +607,12 @@ function resolveCombat() {
 
   for (const enemy of enemies) {
     const target = nearestUnit(enemy, friendlies);
-    if (!target || distance(enemy, target) >= enemy.range) continue;
     if (enemy.type === "UAS") {
+      if (!target || !withinFpvImpactRange(enemy, target)) continue;
       target.health -= enemy.damage;
       enemy.health = 0;
       emitFireTracer(enemy, target);
-    } else if (!hasBuildingLineOfSightBlock(enemy, target)) {
+    } else if (target && distance(enemy, target) < enemy.range && !hasBuildingLineOfSightBlock(enemy, target)) {
       target.health -= enemy.damage;
       emitFireTracer(enemy, target);
     }
@@ -588,13 +620,13 @@ function resolveCombat() {
 
   for (const friendly of friendlies) {
     const target = nearestUnit(friendly, enemies);
-    if (!target || distance(friendly, target) >= friendly.range) continue;
     let effect = friendly.damage;
     if (friendly.type === "UAS") {
+      if (!target || !withinFpvImpactRange(friendly, target)) continue;
       target.health -= effect;
       friendly.health = 0;
       emitFireTracer(friendly, target);
-    } else if (!hasBuildingLineOfSightBlock(friendly, target)) {
+    } else if (target && distance(friendly, target) < friendly.range && !hasBuildingLineOfSightBlock(friendly, target)) {
       if (state.selectedDecision?.id === "screen-and-push") effect *= 1.35;
       target.health -= effect;
       emitFireTracer(friendly, target);
@@ -603,6 +635,22 @@ function resolveCombat() {
 
   for (const unit of state.units) {
     unit.health = clamp(unit.health, 0, unit.maxHealth);
+  }
+
+  eliminateEnemyDronesIfControllerKilled();
+}
+
+function eliminateEnemyDronesIfControllerKilled() {
+  if (!droneAmbushEnabled()) return;
+  const controllerAlive = state.units.some((unit) => (
+    unit.id === "enemy-drone-controller" && unit.health > 0
+  ));
+  if (controllerAlive) return;
+
+  for (const unit of state.units) {
+    if (unit.side === "enemy" && unit.type === "UAS") {
+      unit.health = 0;
+    }
   }
 }
 
@@ -971,6 +1019,18 @@ function renderMovement() {
   }
 }
 
+function renderSensors() {
+  sensorLayer.replaceChildren();
+  for (const unit of getFriendlyUnits()) {
+    sensorLayer.appendChild(el("circle", {
+      cx: unit.x,
+      cy: unit.y,
+      r: LOCAL_SENSOR_RANGE,
+      class: "sensor-ring",
+    }));
+  }
+}
+
 function renderFireTracers() {
   const now = Date.now();
   state.fireTracers = state.fireTracers.filter((tracer) => tracer.expiresAt > now);
@@ -1216,7 +1276,7 @@ function renderClock() {
 
 function render() {
   renderTerrain();
-  sensorLayer.replaceChildren();
+  renderSensors();
   renderMovement();
   renderFireTracers();
   renderUnits();
@@ -1288,6 +1348,12 @@ for (const input of [friendlyCountInput, enemyCountInput]) {
     input.value = String(clamp(Number.parseInt(input.value, 10) || 1, 1, 8));
   });
 }
+
+droneAmbushInput?.addEventListener("change", () => {
+  logSimulationEvent("reset", missionStatus());
+  state.endLogged = true;
+  resetScenario();
+});
 
 reiterateButton.addEventListener("click", () => {
   logSimulationEvent("reiterate", missionStatus());

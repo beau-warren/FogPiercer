@@ -129,7 +129,7 @@ def derive_conditions(metrics: dict[str, Any], selected_decision_id: str | None)
         "enemy_uas_alive": bool(metrics["enemy_drone_alive"]),
         "no_enemy_uas": not bool(metrics["enemy_drone_alive"]),
         "friendly_uas_alive": bool(metrics["friendly_drone_alive"]),
-        "enemy_in_close_contact": float(metrics["closest_enemy"]) <= 125.0,
+        "enemy_in_close_contact": float(metrics["closest_enemy"]) <= float(metrics.get("local_sensor_range", 220.0)),
         "vip_degraded": float(metrics["vip_health"]) < 65.0,
         "vip_healthy": float(metrics["vip_health"]) >= 80.0,
         "commander_decision_active": bool(selected_decision_id),

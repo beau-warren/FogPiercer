@@ -1,6 +1,19 @@
 # SCSP Fogpiercer
 
-Local hackathon demo for a national defense AI competition. The project has two
+Local hackathon demo for a national defense AI competition.
+
+## Team
+
+- Beau Warren
+
+## Data Source
+
+Primary dataset: [CDB90 data](https://github.com/jrnold/CDB90/tree/master/data)
+from the public `jrnold/CDB90` repository. The project uses this source for the
+Logit Hierarchical Regression training table and maps live simulation sensor
+features back into CDB90-shaped columns.
+
+The project has two
 parts:
 
 - `logit_hierarchical_regression/`: training, local inference tests, feature
@@ -77,6 +90,29 @@ The final UI and `simulation/logs/<run_id>/final_summary.json` include:
 - `all_friendlies_eliminated`
 - `all_enemies_eliminated`
 - friendly/enemy alive counts
+
+## Simulation Controls and Tactical Logic
+
+The left panel lets the user set friendly and enemy unit counts before or during
+a reset. Existing units can be dragged directly on the map during a fight; the
+next backend decision refresh uses the full live unit list and positions.
+
+`Drone Ambush` is an optional scenario modifier next to the force-count inputs.
+When checked, all enemy units spawn as FPV drones except one infantry unit
+labeled `CTRL`, representing the drone controller. If `CTRL` is killed, all
+enemy FPV drones are immediately eliminated. This changes only the scenario
+composition and drone lifecycle; it does not change the Logit model, combat
+damage values, or probability math.
+
+Ground units cannot move through the building-wall rectangles defined in the
+frontend, and building walls block ground-unit direct fire. FPV drones can fly
+over buildings. FPV detonation still uses the configured FPV range, but the
+frontend checks the drone's movement segment during each tick so a fast drone
+does not visually cross a target and miss the impact due to frame timing.
+
+Friendly units display faint dotted yellow sensor rings. These rings are visual
+only, but their radius matches the backend local contact range used by the
+contact-pressure multiplier.
 
 ## Decision Percentage Math
 
@@ -214,6 +250,7 @@ adjusted_probability =
   raw_logit_probability
   * force_balance_multiplier
   * action_fit_multiplier
+  * contact_pressure_multiplier
 
 displayed_probability = clamp(adjusted_probability, 0.01, 0.99)
 displayed_percent = round(displayed_probability * 100, 1)
@@ -228,7 +265,9 @@ The raw data popup shows the formula inputs:
 - `raw_logit_probability`
 - `force_balance_multiplier`
 - `action_fit_multiplier`
+- `contact_pressure_multiplier`
 - `probability_formula`
+- local sensor/contact counts and local pressure power
 
 ### 7. Selected Decision Trend
 
@@ -268,23 +307,20 @@ pp/min`, or `Selected trend: steady` when the absolute slope is below `0.25`.
 The trend resets when the commander selects a different option or resets the
 scenario.
 
-### 8. Proposed Local Contact-Pressure Multiplier
+### 8. Local Contact-Pressure Multiplier
 
-The current backend formula uses overall force balance. That means all live
-enemy and friendly units affect the displayed probability, even if only one
-enemy is actually close enough to fight right now. The next planned calibration
-term is a local contact-pressure multiplier that separates global force
-overmatch from immediate local contact.
+The backend also applies a local contact-pressure multiplier. This separates
+global force balance from immediate local danger, especially in FPV-heavy drone
+ambushes where drones have low health but high one-shot lethality.
 
-The intent is:
+The local sensor/contact radius is:
 
 ```text
-future_adjusted_probability =
-  raw_logit_probability
-  * force_balance_multiplier
-  * action_fit_multiplier
-  * contact_pressure_multiplier
+local_sensor_range = 220 px ~= 550 m
 ```
+
+The frontend draws the same radius as faint dotted yellow sensor rings around
+live friendly units.
 
 This would let a `3 vs 8` scenario remain dangerous overall while still showing
 better odds if only one enemy is inside firing/proximity range and the three
@@ -292,28 +328,34 @@ friendlies can focus on that enemy. Conversely, if several enemies are close
 enough to engage the VIP or friendly units at once, the multiplier would reduce
 the displayed probability sharply.
 
-A proposed first version:
-
 ```text
-local_enemy_power =
-  sum(enemy_health * unit_weight for enemies within contact radius of friendlies or VIP)
+local_enemies =
+  enemies within local_sensor_range of any live friendly unit
 
-local_friendly_power =
-  sum(friendly_health * unit_weight for friendlies within support radius of local contact)
+local_friendlies =
+  friendlies within local_sensor_range of those local enemies
 
-local_pressure_ratio =
-  local_friendly_power / max(1, local_enemy_power)
+local_enemy_pressure_power =
+  sum(max(enemy_health * unit_weight, 95) for local enemy FPV drones)
+  + sum(enemy_health * unit_weight for other local enemies)
+
+local_ratio =
+  local_friendly_weighted_power / max(1, local_enemy_pressure_power)
+
+local_balance =
+  clamp(local_ratio ** 0.35, 0.35, 1.10)
+
+fpv_salvo_penalty =
+  max(0.52, 1 - (0.12 * local_enemy_drone_count))
 
 contact_pressure_multiplier =
-  clamp(local_pressure_ratio ** 0.35, 0.35, 1.10)
+  clamp(local_balance * fpv_salvo_penalty, 0.25, 1.10)
 ```
 
-The multiplier should only count units that can plausibly affect the fight. A
-stronger version can also exclude units without line of sight because building
-walls already block direct fire in the simulation.
-
-This is documented here as a planned multiplier. It is not yet included in the
-current `probability_formula` raw-data row until the backend is updated.
+This means one nearby FPV creates a modest penalty, while several nearby FPVs
+create a strong penalty even though each drone has low health. If the drone
+controller is killed in the `Drone Ambush` mode and enemy FPVs are eliminated,
+the local FPV pressure disappears on the next backend decision refresh.
 
 ### 9. LaTeX Worked Example: One VIP vs Eight Infantry
 
@@ -400,29 +442,75 @@ $$
 m_{\text{action}} = 0.90
 $$
 
+Assume all eight enemy infantry are also inside the local sensor/contact radius.
+Because this example uses infantry, not FPV drones, the FPV salvo penalty is
+neutral:
+
+$$
+P_{\text{local friendly}} = 35
+\qquad
+P_{\text{local enemy}} = 720
+\qquad
+N_{\text{local FPV}} = 0
+$$
+
+The local contact ratio is:
+
+$$
+r_{\text{local}}
+:= \frac{P_{\text{local friendly}}}{P_{\text{local enemy}}}
+:= \frac{35}{720}
+\approx 0.0486
+$$
+
+The local balance term is:
+
+$$
+b_{\text{local}}
+:= \operatorname{clamp}(r_{\text{local}}^{0.35}, 0.35, 1.10)
+:= 0.35
+$$
+
+The FPV salvo penalty is:
+
+$$
+s_{\text{FPV}}
+:= \max(0.52, 1 - (0.12 \times N_{\text{local FPV}}))
+:= 1
+$$
+
+So the contact-pressure multiplier is:
+
+$$
+m_{\text{contact}}
+:= \operatorname{clamp}(b_{\text{local}} \times s_{\text{FPV}}, 0.25, 1.10)
+:= 0.35
+$$
+
 The displayed probability is:
 
 $$
 p_{\text{display}}
-= p_{\text{logit}} \times m_{\text{force}} \times m_{\text{action}}
+= p_{\text{logit}} \times m_{\text{force}} \times m_{\text{action}} \times m_{\text{contact}}
 $$
 
 $$
 p_{\text{display}}
-= 0.96 \times 0.30 \times 0.90
-= 0.2592
+= 0.96 \times 0.30 \times 0.90 \times 0.35
+= 0.09072
 $$
 
 Therefore the UI displays:
 
 $$
 \text{displayed percent}
-= 0.2592 \times 100
-\approx 26\%
+= 0.09072 \times 100
+\approx 9\%
 $$
 
 So the model can still say, "historically this action type looks strong," while
-the live force-balance math says, "but this battlefield is badly overmatched."
+the live force-balance and contact-pressure math say, "but this battlefield is
+badly overmatched and the enemy is close enough to matter right now."
 
 ## Logit Feature Columns
 

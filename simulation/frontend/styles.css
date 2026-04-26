@@ -325,6 +325,20 @@ button.compact {
   width: 100%;
 }
 
+.force-controls .checkbox-control {
+  align-items: center;
+  display: flex;
+  gap: 0.6rem;
+  grid-column: 1 / -1;
+}
+
+.force-controls .checkbox-control input {
+  accent-color: #1f9cf0;
+  height: 1rem;
+  padding: 0;
+  width: 1rem;
+}
+
 .control-row {
   display: grid;
   gap: 0.75rem;
@@ -389,6 +403,14 @@ button.compact {
 .map-scrim {
   fill: rgba(6, 14, 20, 0.22);
   pointer-events: none;
+}
+
+.sensor-ring {
+  fill: rgba(255, 209, 102, 0.025);
+  pointer-events: none;
+  stroke: rgba(255, 209, 102, 0.28);
+  stroke-dasharray: 7 11;
+  stroke-width: 2;
 }
 
 .movement-line {

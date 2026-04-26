@@ -17,7 +17,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from app.candidate_actions import action_candidates, calibrated_probability, features_for_action
-from app.sensor_mapping import build_base_features, weighted_power
+from app.sensor_mapping import TYPE_WEIGHTS, build_base_features, weighted_power
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -33,6 +33,8 @@ DEFAULT_MERCURY_MODEL = "mercury-2"
 DEMO_SECONDS = 5 * 60
 LOG_DIR = PROJECT_ROOT / "simulation" / "logs"
 MERCURY_SUMMARY_CACHE: dict[str, str] = {}
+LOCAL_SENSOR_RANGE = 220.0
+FPV_LOCAL_THREAT_POWER = 95.0
 
 
 class UnitState(BaseModel):
@@ -142,6 +144,32 @@ def euclidean(a: UnitState, b: UnitState) -> float:
     return ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
 
 
+def local_contact_metrics(friendlies: list[UnitState], enemies: list[UnitState]) -> dict[str, float]:
+    local_enemies = [
+        enemy
+        for enemy in enemies
+        if any(euclidean(enemy, friendly) <= LOCAL_SENSOR_RANGE for friendly in friendlies)
+    ]
+    local_friendlies = [
+        friendly
+        for friendly in friendlies
+        if any(euclidean(enemy, friendly) <= LOCAL_SENSOR_RANGE for enemy in local_enemies)
+    ]
+    local_enemy_pressure_power = 0.0
+    for enemy in local_enemies:
+        weighted = float(enemy.health) * TYPE_WEIGHTS.get(enemy.type, 1.0)
+        local_enemy_pressure_power += max(weighted, FPV_LOCAL_THREAT_POWER) if enemy.type == "UAS" else weighted
+
+    return {
+        "local_sensor_range": LOCAL_SENSOR_RANGE,
+        "local_enemy_count": float(len(local_enemies)),
+        "local_enemy_drone_count": float(sum(1 for enemy in local_enemies if enemy.type == "UAS")),
+        "local_friendly_count": float(len(local_friendlies)),
+        "local_friendly_weighted_power": round(weighted_power(local_friendlies), 2),
+        "local_enemy_pressure_power": round(local_enemy_pressure_power, 2),
+    }
+
+
 def battlefield_metrics(state: SimulationState) -> dict[str, float | bool]:
     friendlies = live_units(state, "friendly")
     enemies = live_units(state, "enemy")
@@ -160,6 +188,7 @@ def battlefield_metrics(state: SimulationState) -> dict[str, float | bool]:
     ratio = max(0.0, min(1.7, enemy_weighted_power / max(1.0, friendly_weighted_power))) / 1.7
     threat = round((proximity * 0.68 + ratio * 0.32) * 100.0)
     force_balance_index = max(-3.0, min(3.0, (friendly_weighted_power - enemy_weighted_power) / 100.0))
+    local_metrics = local_contact_metrics(friendlies, enemies)
 
     return {
         "friendly_count": float(len(friendlies)),
@@ -174,6 +203,7 @@ def battlefield_metrics(state: SimulationState) -> dict[str, float | bool]:
         "enemy_drone_alive": enemy_drone_alive,
         "friendly_drone_alive": friendly_drone_alive,
         "threat": threat,
+        **local_metrics,
     }
 
 
@@ -196,7 +226,11 @@ def raw_rows(decision: dict[str, Any], features: dict[str, Any], metrics: dict[s
         ["raw_logit_probability", f"{decision.get('raw_logit_probability', decision['success_probability']):.6f}"],
         ["force_balance_multiplier", decision.get("force_balance_multiplier", 1.0)],
         ["action_fit_multiplier", decision.get("action_fit_multiplier", 1.0)],
-        ["probability_formula", "raw_logit_probability * force_balance_multiplier * action_fit_multiplier"],
+        ["contact_pressure_multiplier", decision.get("contact_pressure_multiplier", 1.0)],
+        [
+            "probability_formula",
+            "raw_logit_probability * force_balance_multiplier * action_fit_multiplier * contact_pressure_multiplier",
+        ],
         ["model_source", decision["model_source"]],
         ["mercury_used", decision["mercury_used"]],
         ["mercury_summary", decision["mercury_summary"]],
@@ -221,6 +255,12 @@ def raw_rows(decision: dict[str, Any], features: dict[str, Any], metrics: dict[s
             ["enemy_combat_power", round(float(metrics["enemy_power"]))],
             ["friendly_weighted_power", round(float(metrics["friendly_weighted_power"]))],
             ["enemy_weighted_power", round(float(metrics["enemy_weighted_power"]))],
+            ["local_sensor_range_m", round(float(metrics["local_sensor_range"]) * 2.5)],
+            ["local_enemy_count", round(float(metrics["local_enemy_count"]))],
+            ["local_enemy_drone_count", round(float(metrics["local_enemy_drone_count"]))],
+            ["local_friendly_count", round(float(metrics["local_friendly_count"]))],
+            ["local_friendly_weighted_power", round(float(metrics["local_friendly_weighted_power"]))],
+            ["local_enemy_pressure_power", round(float(metrics["local_enemy_pressure_power"]))],
             ["threat_index", round(float(metrics["threat"]))],
         ]
     )
@@ -251,6 +291,7 @@ def log_decision_snapshot(
                 "raw_logit_probability": decision.get("raw_logit_probability"),
                 "force_balance_multiplier": decision.get("force_balance_multiplier"),
                 "action_fit_multiplier": decision.get("action_fit_multiplier"),
+                "contact_pressure_multiplier": decision.get("contact_pressure_multiplier"),
                 "model_source": decision["model_source"],
                 "mercury_used": decision.get("mercury_used", False),
                 "mercury_summary": decision.get("mercury_summary", ""),
@@ -548,6 +589,7 @@ def decisions(state: SimulationState) -> DecisionSetResponse:
                 "raw_logit_probability": float(probability),
                 "force_balance_multiplier": calibration["force_balance_multiplier"],
                 "action_fit_multiplier": calibration["action_fit_multiplier"],
+                "contact_pressure_multiplier": calibration["contact_pressure_multiplier"],
                 "score": round(adjusted_probability * 100.0, 1),
                 "model_source": os.environ.get("FOGPIERCER_HF_MODEL_REPO", DEFAULT_MODEL_REPO),
                 "is_alternate": False,

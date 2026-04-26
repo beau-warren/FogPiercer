@@ -105,6 +105,20 @@ def force_balance_multiplier(metrics: dict[str, Any]) -> float:
     return round(max(0.05, min(1.15, blended_ratio**0.45)), 4)
 
 
+def contact_pressure_multiplier(metrics: dict[str, Any]) -> float:
+    local_enemy_power = float(metrics.get("local_enemy_pressure_power", 0.0))
+    local_friendly_power = float(metrics.get("local_friendly_weighted_power", 0.0))
+    local_drone_count = float(metrics.get("local_enemy_drone_count", 0.0))
+
+    if local_enemy_power <= 0:
+        return 1.05
+
+    local_ratio = local_friendly_power / max(1.0, local_enemy_power)
+    local_balance = max(0.35, min(1.1, local_ratio**0.35))
+    fpv_salvo_penalty = max(0.52, 1.0 - (0.12 * local_drone_count))
+    return round(max(0.25, min(1.1, local_balance * fpv_salvo_penalty)), 4)
+
+
 def calibrated_probability(
     raw_logit_probability: float,
     action_id: str,
@@ -112,11 +126,13 @@ def calibrated_probability(
 ) -> dict[str, float]:
     force_multiplier = force_balance_multiplier(metrics)
     action_multiplier = applicability(action_id, metrics)
-    adjusted = float(raw_logit_probability) * force_multiplier * action_multiplier
+    contact_multiplier = contact_pressure_multiplier(metrics)
+    adjusted = float(raw_logit_probability) * force_multiplier * action_multiplier * contact_multiplier
     return {
         "adjusted_probability": round(max(0.01, min(0.99, adjusted)), 4),
         "force_balance_multiplier": force_multiplier,
         "action_fit_multiplier": round(action_multiplier, 4),
+        "contact_pressure_multiplier": contact_multiplier,
     }
 
 
