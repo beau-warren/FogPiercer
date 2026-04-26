@@ -32,7 +32,7 @@ const UNIT_STATS = {
   VIP: { health: 100, speed: 0.75, range: 70, damage: 0.18 },
   MRAP: { health: 100, speed: 0.95, range: 105, damage: 0.35 },
   INF: { health: 90, speed: 0.82, range: 95, damage: 0.32 },
-  UAS: { health: 70, speed: 1.2, range: 145, damage: 0.24 },
+  UAS: { health: 20, speed: 2.35, range: 28, damage: 140 },
 };
 
 const UNIT_COUNT_DEFAULTS = {
@@ -147,6 +147,12 @@ function pointInsideRect(point, rect) {
   );
 }
 
+function isGroundPositionBlocked(position) {
+  return BUILDING_WALLS.some((wall) => (
+    pointInsideRect(position, paddedRect(wall, GROUND_UNIT_RADIUS))
+  ));
+}
+
 function segmentIntersectsRect(a, b, rect) {
   const samples = 28;
   for (let index = 1; index < samples; index += 1) {
@@ -196,6 +202,45 @@ function constrainGroundPosition(unit, position) {
     x: clamp(next.x, 30, WIDTH - 30),
     y: clamp(next.y, 30, HEIGHT - 30),
   };
+}
+
+function nextGroundStep(unit, dx, dy, length, step) {
+  if (!isGroundUnit(unit)) {
+    return {
+      x: clamp(unit.x + (dx / length) * step, 30, WIDTH - 30),
+      y: clamp(unit.y + (dy / length) * step, 30, HEIGHT - 30),
+    };
+  }
+
+  const ux = dx / length;
+  const uy = dy / length;
+  const direct = {
+    x: clamp(unit.x + ux * step, 30, WIDTH - 30),
+    y: clamp(unit.y + uy * step, 30, HEIGHT - 30),
+  };
+  if (!isGroundPositionBlocked(direct)) return direct;
+
+  const sideStep = step * 1.25;
+  const forwardStep = step * 0.35;
+  const candidates = [
+    { x: unit.x - uy * sideStep + ux * forwardStep, y: unit.y + ux * sideStep + uy * forwardStep },
+    { x: unit.x + uy * sideStep + ux * forwardStep, y: unit.y - ux * sideStep + uy * forwardStep },
+    { x: unit.x - uy * sideStep, y: unit.y + ux * sideStep },
+    { x: unit.x + uy * sideStep, y: unit.y - ux * sideStep },
+  ].map((point) => ({
+    x: clamp(point.x, 30, WIDTH - 30),
+    y: clamp(point.y, 30, HEIGHT - 30),
+  }));
+
+  const viable = candidates.filter((point) => !isGroundPositionBlocked(point));
+  if (viable.length > 0) {
+    return viable.sort((a, b) => (
+      Math.hypot(a.x - unit.targetX, a.y - unit.targetY)
+      - Math.hypot(b.x - unit.targetX, b.y - unit.targetY)
+    ))[0];
+  }
+
+  return constrainGroundPosition(unit, direct);
 }
 
 function nearestUnit(source, candidates) {
@@ -301,12 +346,16 @@ function unitTypeForSideIndex(side, index) {
 
 function labelForUnit(side, type, index) {
   if (side === "friendly" && type === "VIP") return "VIP";
-  if (side === "friendly" && type === "UAS") return "ISR";
+  if (side === "friendly" && type === "UAS") return "F-FPV";
   if (side === "friendly" && type === "MRAP") return `SEC-${index}`;
   if (side === "friendly") return `INF-${index}`;
-  if (type === "UAS") return `E-UAS-${index + 1}`;
+  if (type === "UAS") return `E-FPV-${index + 1}`;
   if (type === "MRAP") return `E-VEH-${index + 1}`;
   return `CELL-${String.fromCharCode(65 + (index % 26))}`;
+}
+
+function displayUnitType(unit) {
+  return unit.type === "UAS" ? "FPV" : unit.type;
 }
 
 function spawnFriendlyUnits(count) {
@@ -318,8 +367,8 @@ function spawnFriendlyUnits(count) {
       side: "friendly",
       type,
       label: labelForUnit("friendly", type, index),
-      x: clamp(145 + index * 48 + randomBetween(-14, 14), 55, 410),
-      y: clamp(randomBetween(430, 520) + (index % 2) * 16, 60, HEIGHT - 60),
+      x: clamp(115 + index * 56 + randomBetween(-10, 10), 55, 380),
+      y: clamp(342 + index * 10 + randomBetween(-8, 8), 60, HEIGHT - 60),
     }));
   }
   return units;
@@ -402,6 +451,20 @@ function chooseEnemyTargets() {
   }
 }
 
+function chooseFriendlyDroneTargets() {
+  const enemies = getEnemyUnits();
+  if (!enemies.length) return;
+
+  for (const drone of getFriendlyUnits().filter((unit) => unit.type === "UAS")) {
+    const target = state.selectedDecision?.id === "counter-uas"
+      ? enemies.find((unit) => unit.type === "UAS") ?? nearestUnit(drone, enemies)
+      : nearestUnit(drone, enemies);
+    if (!target) continue;
+    drone.targetX = target.x;
+    drone.targetY = target.y;
+  }
+}
+
 function applySelectedDecision() {
   const friendly = getFriendlyUnits();
   const enemies = getEnemyUnits();
@@ -420,8 +483,8 @@ function applySelectedDecision() {
     const drone = enemies.find((unit) => unit.type === "UAS") || enemies[0];
     for (const unit of friendly) {
       if (unit.type === "UAS" && drone) {
-        unit.targetX = clamp(drone.x - 55, 50, WIDTH - 50);
-        unit.targetY = clamp(drone.y + 45, 50, HEIGHT - 50);
+        unit.targetX = clamp(drone.x, 50, WIDTH - 50);
+        unit.targetY = clamp(drone.y, 50, HEIGHT - 50);
       } else {
         unit.targetX = clamp(vip.x + randomBetween(-65, 65), 50, WIDTH - 50);
         unit.targetY = clamp(vip.y + randomBetween(-55, 55), 50, HEIGHT - 50);
@@ -475,10 +538,7 @@ function moveUnitTowardTarget(unit) {
   if (length < 1) return;
 
   const step = unit.speed;
-  const next = constrainGroundPosition(unit, {
-    x: unit.x + (dx / length) * step,
-    y: unit.y + (dy / length) * step,
-  });
+  const next = nextGroundStep(unit, dx, dy, length, step);
   unit.x = next.x;
   unit.y = next.y;
 }
@@ -489,7 +549,12 @@ function resolveCombat() {
 
   for (const enemy of enemies) {
     const target = nearestUnit(enemy, friendlies);
-    if (target && distance(enemy, target) < enemy.range && !hasBuildingLineOfSightBlock(enemy, target)) {
+    if (!target || distance(enemy, target) >= enemy.range) continue;
+    if (enemy.type === "UAS") {
+      target.health -= enemy.damage;
+      enemy.health = 0;
+      emitFireTracer(enemy, target);
+    } else if (!hasBuildingLineOfSightBlock(enemy, target)) {
       target.health -= enemy.damage;
       emitFireTracer(enemy, target);
     }
@@ -497,14 +562,14 @@ function resolveCombat() {
 
   for (const friendly of friendlies) {
     const target = nearestUnit(friendly, enemies);
-    if (target && distance(friendly, target) < friendly.range && !hasBuildingLineOfSightBlock(friendly, target)) {
-      let effect = friendly.damage;
-      if (state.selectedDecision?.id === "counter-uas" && target.type === "UAS") {
-        effect *= 2.8;
-      }
-      if (state.selectedDecision?.id === "screen-and-push") {
-        effect *= 1.35;
-      }
+    if (!target || distance(friendly, target) >= friendly.range) continue;
+    let effect = friendly.damage;
+    if (friendly.type === "UAS") {
+      target.health -= effect;
+      friendly.health = 0;
+      emitFireTracer(friendly, target);
+    } else if (!hasBuildingLineOfSightBlock(friendly, target)) {
+      if (state.selectedDecision?.id === "screen-and-push") effect *= 1.35;
       target.health -= effect;
       emitFireTracer(friendly, target);
     }
@@ -539,9 +604,9 @@ function computeHeuristicDecisions() {
   const decisions = [
     {
       id: "counter-uas",
-      title: "Prioritize counter-UAS intercept",
+      title: "Prioritize FPV drone intercept",
       score: clamp(76 + (enemyDroneAlive ? 12 : -18) + threat * 0.08, 1, 99),
-      summary: "Move ISR and escort fires onto the hostile drone to reduce ambush coordination.",
+      summary: "Commit friendly FPV drone and escort fires against the hostile drone before it reaches the VIP.",
       modelSource: "local heuristic fallback",
     },
     {
@@ -714,7 +779,7 @@ function updateSituationText() {
   }
 
   situationCopy.textContent =
-    "Friendly VIP escort is moving through restricted terrain while hostile drone and infantry cells coordinate an ambush.";
+    "Friendly VIP escort is moving through restricted terrain while hostile FPV drone and infantry cells coordinate an ambush.";
 }
 
 function serializeSimulationState() {
@@ -784,6 +849,7 @@ function tick() {
   refreshModelDecisions();
   state.secondsRemaining -= TICK_MS / 1000;
   chooseEnemyTargets();
+  chooseFriendlyDroneTargets();
   applySelectedDecision();
 
   for (const unit of state.units.filter((item) => item.health > 0)) {
@@ -911,7 +977,7 @@ function renderUnits() {
     }));
 
     const type = el("text", { x: 0, y: 4 });
-    type.textContent = unit.type;
+    type.textContent = displayUnitType(unit);
     group.appendChild(type);
 
     const label = el("text", { x: 0, y: 37, class: "label" });
@@ -1066,7 +1132,7 @@ function renderSensorSummary() {
     ["Enemy units", `${getEnemyUnits().length}/${state.units.filter((unit) => unit.side === "enemy").length}`],
     ["Friendly combat power", Math.round(friendlyHealth).toString()],
     ["Enemy combat power", Math.round(enemyHealth).toString()],
-    ["Hostile drone", enemyDrone],
+    ["Hostile FPV", enemyDrone],
   ];
 
   for (const [label, value] of rows) {

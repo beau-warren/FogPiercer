@@ -7,8 +7,8 @@ PRIMARY_ACTION_IDS = ["counter-uas", "break-contact", "screen-and-push"]
 
 ACTION_CATALOG: dict[str, dict[str, Any]] = {
     "counter-uas": {
-        "title": "Prioritize counter-UAS intercept",
-        "summary": "Move ISR and escort fires onto the hostile drone to reduce ambush coordination.",
+        "title": "Prioritize FPV drone intercept",
+        "summary": "Commit friendly FPV drone and escort fires against the hostile drone before it reaches the VIP.",
         "posture": {"tactical_posture": "HD|postype_0", "postype": 0, "post1": "HD", "post2": None},
         "deltas": {"techa": 1, "intela": 1, "aeroa": 1, "aira": 1},
         "primary": True,
@@ -58,7 +58,7 @@ def action_candidates(metrics: dict[str, Any]) -> list[dict[str, Any]]:
         candidate["id"] = action_id
         candidate["applicability"] = applicability(action_id, metrics)
         if action_id == "counter-uas" and not bool(metrics["enemy_drone_alive"]):
-            candidate["summary"] = "No hostile UAS is active; keep overwatch while prioritizing ground threats."
+            candidate["summary"] = "No hostile FPV drone is active; preserve friendly drone capacity for ground threats."
         candidates.append(candidate)
     return candidates
 

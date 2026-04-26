@@ -79,15 +79,15 @@ CONDITION_MAP: dict[str, dict[str, Any]] = {
         "fields": {"cea": 1, "inita": 1, "momnta": 1},
     },
     "enemy_uas_alive": {
-        "description": "Hostile UAS is active and can coordinate the ambush.",
+        "description": "Hostile FPV drone is active and can strike the VIP escort.",
         "fields": {"aeroa": -1, "aira": -1, "intela": 0, "techa": -1},
     },
     "no_enemy_uas": {
-        "description": "No hostile UAS remains, reducing the value of counter-UAS action.",
+        "description": "No hostile FPV drone remains, reducing the value of counter-drone action.",
         "fields": {"aeroa": 1, "aira": 0, "intela": 1, "techa": 0},
     },
     "friendly_uas_alive": {
-        "description": "Friendly ISR UAS is alive and improving observation.",
+        "description": "Friendly FPV drone is alive and available for a one-way strike.",
         "fields": {"intela": 1, "techa": 1},
     },
     "enemy_in_close_contact": {

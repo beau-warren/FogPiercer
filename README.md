@@ -56,11 +56,11 @@ candidate_features[action] = base_battlefield_features + action_feature_deltas
 
 `base_battlefield_features` comes from live simulation state through
 `simulation/backend/app/sensor_mapping.py`. Examples include friendly/enemy
-weighted combat power, alive counts, VIP health, hostile UAS presence, and
+weighted combat power, alive counts, VIP health, hostile FPV drone presence, and
 enemy proximity.
 
 `action_feature_deltas` comes from
-`simulation/backend/app/candidate_actions.py`. For example, counter-UAS improves
+`simulation/backend/app/candidate_actions.py`. For example, counter-drone action improves
 `techa`, `intela`, `aeroa`, and `aira`, while break-contact improves `resa` and
 changes `direction`.
 
@@ -140,9 +140,9 @@ historical logit probability is high.
 Each action also receives an action-fit multiplier:
 
 ```text
-counter-uas:
-  1.00 if an enemy UAS is alive
-  0.10 if no enemy UAS is alive
+counter-drone:
+  1.00 if an enemy FPV drone is alive
+  0.10 if no enemy FPV drone is alive
 
 screen-and-push:
   0.45 if enemy_count >= max(2, friendly_count * 2)
@@ -319,7 +319,7 @@ The trained target is `attacker_success`. The action column is
 | `post2` | Categorical | Optional second tactical posture code for combined actions. Often `None` for single-posture actions. |
 | `front` | Numeric | Whether the fight is treated as active front/contact. Set when enemy pressure or close contact is high. |
 | `depth` | Numeric | Whether the fight has depth/penetration pressure. Set when enemy power or close contact implies deeper threat. |
-| `aeroa` | Numeric | Attacker air/aerial advantage. Hostile UAS can reduce this; counter-UAS can improve it. |
+| `aeroa` | Numeric | Attacker air/aerial advantage. Hostile FPV drones can reduce this; counter-drone action can improve it. |
 | `surpa` | Numeric | Attacker surprise advantage. Close enemy contact or overmatch reduces friendly surprise. |
 | `cea` | Numeric | Combat effectiveness/force-balance proxy. Built from weighted friendly/enemy combat power and count conditions. |
 | `leada` | Numeric | Attacker leadership/command signal. Enabled when a commander decision is active. |
@@ -327,13 +327,13 @@ The trained target is `attacker_success`. The action column is
 | `morala` | Numeric | Attacker morale/cohesion proxy. Improved by friendly overmatch or healthy VIP, reduced by overmatch against friendlies or VIP damage. |
 | `logsa` | Numeric | Attacker logistics/support signal. Improved by call-for-reinforcement. |
 | `momnta` | Numeric | Attacker momentum. Improved by push/overmatch, reduced by withdrawal, defensive hold, or being badly outnumbered. |
-| `intela` | Numeric | Attacker intelligence/ISR advantage. Friendly UAS and counter-UAS improve this; hostile UAS can reduce it. |
-| `techa` | Numeric | Attacker technology/sensor advantage. Friendly ISR and counter-UAS improve this. |
+| `intela` | Numeric | Attacker intelligence/air-awareness advantage. Friendly FPV availability and counter-drone action improve this; hostile FPV drones can reduce it. |
+| `techa` | Numeric | Attacker technology/drone advantage. Friendly FPV availability and counter-drone action improve this. |
 | `inita` | Numeric | Attacker initiative. Screen-and-push and friendly power advantage improve this; break-contact and reinforcement delay reduce it. |
 | `quala` | Numeric | Attacker force quality/survivability proxy. In the demo it is strongly influenced by VIP health and shift-to-cover actions. |
 | `resa` | Numeric | Attacker reserve/resilience/recovery signal. Break-contact and VIP-to-cover increase this. |
 | `mobila` | Numeric | Attacker mobility. Screen-and-push and shift-to-cover increase this; break-contact and static defense reduce it. |
-| `aira` | Numeric | Attacker air operations/air control signal. Hostile UAS reduces this; counter-UAS improves it. |
+| `aira` | Numeric | Attacker air operations/air control signal. Hostile FPV drones reduce this; counter-drone action improves it. |
 | `fprepa` | Numeric | Fire preparation/preparatory fires signal. Currently neutral in the demo. |
 | `wxa` | Numeric | Weather advantage signal. Currently neutral in the demo. |
 | `terra` | Numeric | Terrain advantage signal. The demo sets this to `1` for restricted road/cover terrain. |
