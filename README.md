@@ -23,7 +23,7 @@ parts:
 - `simulation/`: local 2D battlefield simulation and UI that pulls model
   outputs from the trained model endpoint/artifact.
 
-## Safety and Secrets
+## API Keys and Secrets
 
 This repo is intended to be safe to publish later. Do not commit `.env`, API
 keys, raw restricted datasets, generated model binaries, or Hugging Face tokens.
