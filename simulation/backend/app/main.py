@@ -344,6 +344,8 @@ def log_simulation_event(event: SimulationEvent) -> None:
         friendly_total = sum(1 for unit in event.units if unit.side == "friendly")
         enemy_total = sum(1 for unit in event.units if unit.side == "enemy")
         vip_health = next((unit.health for unit in event.units if unit.id == "vip"), 0)
+        vip_x = next((unit.x for unit in event.units if unit.id == "vip"), 0)
+        vip_extracted = event.mission_status == "friendly_extraction" or (vip_health > 0 and vip_x >= 900)
         summary = {
             "timestamp": payload["timestamp"],
             "run_id": event.run_id,
@@ -353,6 +355,7 @@ def log_simulation_event(event: SimulationEvent) -> None:
             "ticks": event.tick,
             "seconds_elapsed": round(DEMO_SECONDS - event.seconds_remaining, 2),
             "vip_killed": vip_health <= 0,
+            "vip_extracted": vip_extracted,
             "all_friendlies_eliminated": friendly_alive == 0,
             "all_enemies_eliminated": enemy_alive == 0,
             "friendly_alive": friendly_alive,
@@ -360,6 +363,7 @@ def log_simulation_event(event: SimulationEvent) -> None:
             "enemy_alive": enemy_alive,
             "enemy_total": enemy_total,
             "vip_health": vip_health,
+            "vip_x": vip_x,
             "note": "Synthetic demo telemetry only. Use as candidate retraining data after human review; no automatic retraining is performed.",
         }
         (directory / "final_summary.json").write_text(

@@ -36,8 +36,47 @@ Required local environment variables:
    feature schema as the CDB90 training data.
 4. Ask Mercury II to summarize the top 3 model-ranked decisions in plain
    operator-friendly language.
-5. End/reset the demo when one side is removed, preserving the final decision
-   and requiring a user click to reiterate.
+5. End/reset the demo when the VIP is killed, the friendly force is eliminated,
+   the enemy force is eliminated, the clock expires, or the VIP reaches the
+   exfil side of the map.
+
+## Mission End Conditions
+
+The frontend owns the live mission-ending logic because it has the current
+unit positions every animation tick. The backend records the final status in
+telemetry when the frontend logs the `ended`, `reset`, or `reiterate` event.
+
+Current end states:
+
+```text
+if VIP health <= 0:
+  mission_status = enemy_victory
+
+if live VIP x-position >= 900:
+  mission_status = friendly_extraction
+
+if live friendly count == 0:
+  mission_status = enemy_victory
+
+if live enemy count == 0:
+  mission_status = friendly_victory
+
+if demo clock <= 0:
+  mission_status = clock_expired
+```
+
+`friendly_extraction` means the VIP/convoy has made it through the ambush and
+cleared the far/east side of the map. This is different from destroying every
+enemy. It lets a heavily outnumbered friendly force still succeed by moving the
+VIP through the road segment or surviving long enough to break contact.
+
+The final UI and `simulation/logs/<run_id>/final_summary.json` include:
+
+- `vip_killed`
+- `vip_extracted`
+- `all_friendlies_eliminated`
+- `all_enemies_eliminated`
+- friendly/enemy alive counts
 
 ## Decision Percentage Math
 
@@ -191,7 +230,92 @@ The raw data popup shows the formula inputs:
 - `action_fit_multiplier`
 - `probability_formula`
 
-### 7. LaTeX Worked Example: One VIP vs Eight Infantry
+### 7. Selected Decision Trend
+
+The active-decision header shows the trend for the currently selected option
+only. This is a frontend decision-support signal, not an additional Logit model
+feature.
+
+When the user selects a top-ranked decision, the frontend stores:
+
+```text
+selected_trend = {
+  id: selected_decision_id,
+  score: selected_displayed_percent,
+  at: current_timestamp_ms,
+  slope: 0
+}
+```
+
+On each decision refresh, the frontend finds the latest score for that same
+decision id. If the score changed by at least `0.05` percentage points, it
+calculates the current slope:
+
+```text
+elapsed_minutes = max((now_ms - previous_timestamp_ms) / 60000, 1 / 60)
+
+slope_pp_per_minute =
+  clamp(
+    (current_displayed_percent - previous_displayed_percent)
+    / elapsed_minutes,
+    -99,
+    99
+  )
+```
+
+The UI displays this as `Selected trend: +X.X pp/min`, `Selected trend: -X.X
+pp/min`, or `Selected trend: steady` when the absolute slope is below `0.25`.
+The trend resets when the commander selects a different option or resets the
+scenario.
+
+### 8. Proposed Local Contact-Pressure Multiplier
+
+The current backend formula uses overall force balance. That means all live
+enemy and friendly units affect the displayed probability, even if only one
+enemy is actually close enough to fight right now. The next planned calibration
+term is a local contact-pressure multiplier that separates global force
+overmatch from immediate local contact.
+
+The intent is:
+
+```text
+future_adjusted_probability =
+  raw_logit_probability
+  * force_balance_multiplier
+  * action_fit_multiplier
+  * contact_pressure_multiplier
+```
+
+This would let a `3 vs 8` scenario remain dangerous overall while still showing
+better odds if only one enemy is inside firing/proximity range and the three
+friendlies can focus on that enemy. Conversely, if several enemies are close
+enough to engage the VIP or friendly units at once, the multiplier would reduce
+the displayed probability sharply.
+
+A proposed first version:
+
+```text
+local_enemy_power =
+  sum(enemy_health * unit_weight for enemies within contact radius of friendlies or VIP)
+
+local_friendly_power =
+  sum(friendly_health * unit_weight for friendlies within support radius of local contact)
+
+local_pressure_ratio =
+  local_friendly_power / max(1, local_enemy_power)
+
+contact_pressure_multiplier =
+  clamp(local_pressure_ratio ** 0.35, 0.35, 1.10)
+```
+
+The multiplier should only count units that can plausibly affect the fight. A
+stronger version can also exclude units without line of sight because building
+walls already block direct fire in the simulation.
+
+This is documented here as a planned multiplier. It is not yet included in the
+current `probability_formula` raw-data row until the backend is updated.
+
+### 9. LaTeX Worked Example: One VIP vs Eight Infantry
 
 Assume the Logit model produces a strong historical prior for
 `shift-vip-to-cover`:

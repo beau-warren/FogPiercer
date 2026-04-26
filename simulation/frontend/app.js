@@ -3,6 +3,7 @@ const HEIGHT = 620;
 const TICK_MS = 240;
 const DEMO_SECONDS = 5 * 60;
 const API_BASE_URL = "http://127.0.0.1:8000";
+const VIP_EXTRACTION_X = 900;
 
 const svg = document.querySelector("#battlefield");
 const terrainLayer = document.querySelector("#terrain-layer");
@@ -297,20 +298,28 @@ function missionStatus() {
   const enemyAlive = getEnemyUnits().length;
   const vipAlive = state.units.some((unit) => unit.id === "vip" && unit.health > 0);
   if (!vipAlive) return "enemy_victory";
+  if (vipExtracted()) return "friendly_extraction";
   if (friendlyAlive === 0) return "enemy_victory";
   if (enemyAlive === 0) return "friendly_victory";
   if (state.secondsRemaining <= 0) return "clock_expired";
   return "running";
 }
 
+function vipExtracted() {
+  const vip = state.units.find((unit) => unit.id === "vip" && unit.health > 0);
+  return Boolean(vip && vip.x >= VIP_EXTRACTION_X);
+}
+
 function endStateDetails() {
   const vipKilled = !state.units.some((unit) => unit.id === "vip" && unit.health > 0);
+  const extracted = vipExtracted();
   const friendlyTotal = state.units.filter((unit) => unit.side === "friendly").length;
   const enemyTotal = state.units.filter((unit) => unit.side === "enemy").length;
   const friendlyAlive = getFriendlyUnits().length;
   const enemyAlive = getEnemyUnits().length;
   return {
     vipKilled,
+    vipExtracted: extracted,
     allFriendliesEliminated: friendlyAlive === 0,
     allEnemiesEliminated: enemyAlive === 0,
     friendlyAlive,
@@ -773,6 +782,9 @@ function updateSituationText() {
     } else if (friendlyCount === 0) {
       situationTitle.textContent = "Mission failed: friendly force combat ineffective";
       battlefieldStatus.textContent = "Enemy force controls the road segment";
+    } else if (details.vipExtracted) {
+      situationTitle.textContent = "Mission success: VIP cleared the ambush";
+      battlefieldStatus.textContent = "VIP extracted";
     } else if (enemyCount === 0) {
       situationTitle.textContent = "Mission success: hostile ambush neutralized";
       battlefieldStatus.textContent = "Friendly force controls the road segment";
@@ -783,6 +795,7 @@ function updateSituationText() {
     situationCopy.textContent = [
       `Final decision: ${state.selectedDecision?.title ?? "No decision selected"}.`,
       `VIP killed: ${details.vipKilled ? "yes" : "no"}.`,
+      `VIP extracted: ${details.vipExtracted ? "yes" : "no"}.`,
       `All friendlies eliminated: ${details.allFriendliesEliminated ? "yes" : "no"} (${details.friendlyAlive}/${details.friendlyTotal} alive).`,
       `All enemies eliminated: ${details.allEnemiesEliminated ? "yes" : "no"} (${details.enemyAlive}/${details.enemyTotal} alive).`,
     ].join(" ");
@@ -913,6 +926,34 @@ function el(name, attrs = {}) {
 
 function renderTerrain() {
   terrainLayer.replaceChildren();
+  terrainLayer.appendChild(el("rect", {
+    x: VIP_EXTRACTION_X,
+    y: 0,
+    width: WIDTH - VIP_EXTRACTION_X,
+    height: HEIGHT,
+    fill: "#2ec27e",
+    opacity: 0.06,
+  }));
+  terrainLayer.appendChild(el("line", {
+    x1: VIP_EXTRACTION_X,
+    y1: 24,
+    x2: VIP_EXTRACTION_X,
+    y2: HEIGHT - 24,
+    stroke: "#8ff0a4",
+    "stroke-width": 3,
+    "stroke-dasharray": "10 10",
+    opacity: 0.55,
+  }));
+  const label = el("text", {
+    x: VIP_EXTRACTION_X + 14,
+    y: 52,
+    fill: "#b8f7c8",
+    "font-size": 18,
+    "font-weight": 800,
+    "letter-spacing": 2,
+  });
+  label.textContent = "EXFIL";
+  terrainLayer.appendChild(label);
 }
 
 function renderMovement() {
