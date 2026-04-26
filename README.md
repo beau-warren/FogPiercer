@@ -23,6 +23,75 @@ parts:
 - `simulation/`: local 2D battlefield simulation and UI that pulls model
   outputs from the trained model endpoint/artifact.
 
+## Quick Start: Run the Demo Locally
+
+These commands assume Ubuntu/WSL with Python 3.11 or newer.
+
+1. Clone the repo and enter the project folder:
+
+```bash
+git clone https://github.com/fermsi-paradox/FogPiercer.git
+cd FogPiercer
+```
+
+2. Create your local environment file:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and fill in the API keys/model paths listed below. Do not commit
+`.env`.
+
+3. Install the backend Python requirements:
+
+```bash
+cd simulation/backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+4. Start the backend API:
+
+```bash
+PYTHONPATH="$PWD" uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Keep that terminal running. The API is now available at
+`http://127.0.0.1:8000`.
+
+5. In a second terminal, start the frontend:
+
+```bash
+cd FogPiercer/simulation/frontend
+python3 -m http.server 5173
+```
+
+6. Open the demo in your browser:
+
+```text
+http://127.0.0.1:5173/
+```
+
+The frontend is a simple static page. The backend does the model loading,
+decision scoring, telemetry logging, and Mercury II summaries.
+
+## Optional: Train the Logit Model
+
+The basic demo uses the trained model path configured in `.env`. To work on
+model training instead, install the separate training requirements:
+
+```bash
+cd FogPiercer/logit_hierarchical_regression
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Training expects a prepared CDB90-style table at `CDB90_DATA_PATH` and a
+Hugging Face repo/token configured in `.env`.
+
 ## API Keys and Secrets
 
 This repo is intended to be safe to publish later. Do not commit `.env`, API
