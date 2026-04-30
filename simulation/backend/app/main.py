@@ -27,7 +27,7 @@ sys.path.append(str(LHR_SRC))
 from fogpiercer_lhr.inference import load_model  # noqa: E402
 
 
-DEFAULT_MODEL_REPO = "fermsi/SCSP_fogpiercer-logit-hierarchical-regression"
+DEFAULT_MODEL_REPO = "beau-warren/SCSP_fogpiercer-logit-hierarchical-regression"
 DEFAULT_MERCURY_BASE_URL = "https://api.inceptionlabs.ai/v1"
 DEFAULT_MERCURY_MODEL = "mercury-2"
 DEMO_SECONDS = 5 * 60

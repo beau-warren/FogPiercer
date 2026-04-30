@@ -30,7 +30,7 @@ These commands assume Ubuntu/WSL with Python 3.11 or newer.
 1. Clone the repo and enter the project folder:
 
 ```bash
-git clone https://github.com/fermsi-paradox/FogPiercer.git
+git clone https://github.com/beau-warren/FogPiercer.git
 cd FogPiercer
 ```
 
@@ -106,7 +106,7 @@ Required local environment variables:
 - `HF_TOKEN`: Hugging Face token with write access for training pushes and read
   access for demo pulls.
 - `FOGPIERCER_HF_MODEL_REPO`: Hugging Face model repository, for example
-  `your-hf-username/SCSP_fogpiercer-logit-hierarchical-regression`.
+  `beau-warren/SCSP_fogpiercer-logit-hierarchical-regression`.
 - `GITHUB_TOKEN`: optional, only for later GitHub automation.
 - `CDB90_DATA_PATH`: local path to the CDB90 CSV.
 
